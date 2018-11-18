@@ -69,6 +69,9 @@ class Alias(models.Model):
     person = models.ForeignKey(Person, on_delete=models.CASCADE, related_name='aliases')
     alias = models.CharField(max_length=255)
 
+    def __str__(self):
+        return '%s (%s)' % (self.alias, self.person)
+
 
 class Affiliation(models.Model):
     person = models.ForeignKey(Person, on_delete=models.CASCADE, related_name='affiliations')
@@ -115,7 +118,7 @@ class Publication(models.Model):
             for role, person_list in entry.persons.items():
                 for i, p in enumerate(person_list):
                     try:
-                        person = Alias.objects.get(alias=str(p))
+                        person = Alias.objects.get(alias=str(p)).person
                     except Alias.DoesNotExist:
                         person = Person.objects.create(
                             given_names=' '.join(p.bibtex_first_names).replace('{', '').replace('}', '').strip(),
@@ -134,15 +137,17 @@ class Publication(models.Model):
         return items
 
     def __str__(self):
-        return '%s (%s)' % (
+        n_authors = self.authorships.all().count()
+        return '%s (%s +%s)' % (
             self.name,
-            self.authorships.first().person if self.authorships.all().count() else '<authorless>'
+            self.authorships.first().person if n_authors else '<authorless>',
+            n_authors - 1
         )
 
 
 class Authorship(models.Model):
     publication = models.ForeignKey(Publication, models.CASCADE, related_name='authorships')
-    person = models.ForeignKey(Person, models.CASCADE, related_name='authorships')
+    person = models.ForeignKey(Person, models.PROTECT, related_name='authorships')
     role = models.CharField(max_length=55)
     order = models.IntegerField(default=0)
 
