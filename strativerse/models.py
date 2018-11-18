@@ -26,7 +26,7 @@ class Tag(models.Model):
 
     class Meta:
         unique_together = ['content_type', 'object_id', 'type', 'key']
-        ordering = ['key']
+        ordering = ['type', 'key']
 
     def __str__(self):
         return '%s/%s=`%s`' % (self.type, self.key, self.value)
@@ -45,7 +45,7 @@ class Attachment(models.Model):
 
     class Meta:
         unique_together = ['content_type', 'object_id', 'type', 'key']
-        ordering = ['key']
+        ordering = ['type', 'key']
 
     def __str__(self):
         return '%s/%s=`%s`' % (self.type, self.key, self.file.name)
