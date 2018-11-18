@@ -5,28 +5,50 @@ from pybtex.database import BibliographyData
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
 from django.contrib.contenttypes.fields import GenericRelation
-from django.core.validators import RegexValidator
+from django.core.validators import RegexValidator, ValidationError
 from django.db import models
 from django.contrib.auth.models import User
+import reversion
 
 from .geometry import validate_wkt, wkt_bounds, wkt_geometry_type
 
 
 class Tag(models.Model):
+    type = models.CharField(max_length=55, default='tag')
     key = models.CharField(max_length=55, validators=[
         RegexValidator(r'^[A-Za-z0-9_]+$', message='Must only contain alphanumerics or the underscore')
     ])
     value = models.CharField(max_length=255)
+    comment = models.CharField(max_length=512)
     content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE)
     object_id = models.PositiveIntegerField()
     content_object = GenericForeignKey('content_type', 'object_id')
 
     class Meta:
-        unique_together = ['content_type', 'object_id', 'key']
+        unique_together = ['content_type', 'object_id', 'type', 'key']
         ordering = ['key']
 
     def __str__(self):
-        return '%s=`%s`' % (self.key, self.value)
+        return '%s/%s=`%s`' % (self.type, self.key, self.value)
+
+
+class Attachment(models.Model):
+    type = models.CharField(max_length=55, default='attachment')
+    key = models.CharField(max_length=55, validators=[
+        RegexValidator(r'^[A-Za-z0-9_]+$', message='Must only contain alphanumerics or the underscore')
+    ])
+    comment = models.CharField(max_length=512)
+    file = models.FileField(upload_to='attachments')
+    content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE)
+    object_id = models.PositiveIntegerField()
+    content_object = GenericForeignKey('content_type', 'object_id')
+
+    class Meta:
+        unique_together = ['content_type', 'object_id', 'type', 'key']
+        ordering = ['key']
+
+    def __str__(self):
+        return '%s/%s=`%s`' % (self.type, self.key, self.file.name)
 
 
 class GeoModel(models.Model):
@@ -40,7 +62,7 @@ class GeoModel(models.Model):
     geo_xmax = models.FloatField(editable=False, blank=True, null=True, default=None)
     geo_ymin = models.FloatField(editable=False, blank=True, null=True, default=None)
     geo_ymax = models.FloatField(editable=False, blank=True, null=True, default=None)
-    geo_type = models.CharField(max_length=55, blank=True)
+    geo_type = models.CharField(max_length=55, blank=True, editable=False)
 
     class Meta:
         abstract = True
@@ -78,16 +100,25 @@ class TaggedModel(models.Model):
         abstract = True
 
 
-class Feature(TaggedModel, RecursiveModel, GeoModel):
+class AttachableModel(models.Model):
+    attachments = GenericRelation(Attachment)
+
+    class Meta:
+        abstract = True
+
+
+class Feature(TaggedModel, AttachableModel, RecursiveModel, GeoModel):
     name = models.CharField(max_length=255)
     type = models.CharField(
         choices=[
+            ('feature', 'Feature'),
             ('water_body', 'Water Body'),
             ('glacier', 'Glacier'),
             ('bog', 'Bog'),
             ('geopolitical_unit', 'Geopolitical Unit'),
             ('region', 'Region')
         ],
+        default='feature',
         max_length=55
     )
 
@@ -100,12 +131,13 @@ class Feature(TaggedModel, RecursiveModel, GeoModel):
         return '%s <%s %s>' % (self.name, self.type, self.pk)
 
 
-class Person(models.Model):
+class Person(TaggedModel, AttachableModel):
     given_names = models.CharField(max_length=255, blank=True)
     last_name = models.CharField(max_length=255)
-    suffix = models.CharField(max_length=10)
+    suffix = models.CharField(max_length=10, blank=True)
 
     class Meta:
+        verbose_name_plural = 'people'
         ordering = ['last_name', 'given_names']
 
     def __str__(self):
@@ -146,13 +178,22 @@ class Alias(models.Model):
         unique_together = ['person', 'alias']
 
     def __str__(self):
-        return '%s (%s)' % (self.alias, self.person)
+        return self.alias
 
 
-class Publication(models.Model):
+def validate_biblatex(value):
+    try:
+        bib = parse_bibtex(value, bib_format='bibtex')
+        if len(bib.entries) != 1:
+            raise ValidationError('Text must contain exactly one biblatex entry')
+    except Exception as e:
+        raise ValidationError('Biblatex parse error: "%s"' % e)
+
+
+class Publication(TaggedModel, AttachableModel):
     slug = models.CharField(max_length=55, unique=True)
     title = models.CharField(max_length=255)
-    biblatex = models.TextField()
+    biblatex = models.TextField(validators=[validate_biblatex, ])
     doi = models.CharField(max_length=255, blank=True)
     url = models.URLField(blank=True)
     year = models.IntegerField()
@@ -160,37 +201,31 @@ class Publication(models.Model):
     class Meta:
         ordering = ['year', 'slug']
 
-    @staticmethod
-    def import_bibtex(text):
-        bib = parse_bibtex(text, bib_format='bibtex')
-        items = []
-        for key, entry in bib.entries.items():
-            # check for key already in database (skip if it is?)
-            try:
-                items.append(Publication.objects.get(slug=key))
-                continue
-            except Publication.DoesNotExist:
-                pass
+    def update_from_bibtex(self, update_authors=False):
+        key = self.slug
+        bib = parse_bibtex(self.biblatex, 'bibtex')
+        entry = bib.entries[list(bib.entries.keys())[0]]
 
-            # create publication
-            if 'year' in entry.fields:
-                year = int(entry.fields['year'])
-            elif 'date' in entry.fields:
-                year = int(entry.fields['date'].strip()[:4])
-            else:
-                raise ValueError('No year in entry "%s"' % key)
+        # create publication
+        if 'year' in entry.fields:
+            year = int(entry.fields['year'])
+        elif 'date' in entry.fields:
+            year = int(entry.fields['date'].strip()[:4])
+        else:
+            raise ValidationError('No year in entry "%s"' % key)
 
-            pub = Publication.objects.create(
-                slug=key,
-                title=entry.fields['title'].replace('{', '').replace('}', '')
-                if 'title' in entry.fields else 'Untitled',
-                biblatex=BibliographyData({key: entry}).to_string('bibtex'),
-                doi=entry.fields['doi'] if 'doi' in entry.fields else '',
-                url=entry.fields['url'] if 'url' in entry.fields else '',
-                year=year
-            )
+        self.title = entry.fields['title'].replace('{', '').replace('}', '') if 'title' in entry.fields else 'Untitled'
+        self.doi = entry.fields['doi'].replace('\\_', '_') if 'doi' in entry.fields else ''
+        self.url = entry.fields['url'].replace('\\_', '_') if 'url' in entry.fields else ''
+        self.year = year
 
-            # get or create people
+        if update_authors:
+            if not self.pk:
+                self.save()
+
+            for authorship in self.authorships.all():
+                authorship.delete()
+
             for role, person_list in entry.persons.items():
                 for i, p in enumerate(person_list):
                     try:
@@ -201,19 +236,39 @@ class Publication(models.Model):
                             last_name=' '.join(p.last_names).replace('{', '').replace('}', '').strip()
                         )
                         Alias.objects.create(person=person, alias=str(p))
+
                     Authorship.objects.create(
-                        publication=pub,
+                        publication=self,
                         person=person,
                         role=role,
                         order=i
                     )
 
-            items.append(pub)
+    @staticmethod
+    def import_biblatex(text, update_authors=True, user=None):
+        with reversion.create_revision(atomic=True):
+            bib = parse_bibtex(text, bib_format='bibtex')
+            items = []
+            for key, entry in bib.entries.items():
+                # check for key already in database (update everything except authorship if it is)
+                try:
+                    pub = Publication.objects.get(slug=key)
+                except Publication.DoesNotExist:
+                    pub = Publication(slug=key, biblatex=BibliographyData({key: entry}).to_string('bibtex'))
 
-        return items
+                pub.update_from_bibtex(update_authors=update_authors)
+                pub.save()
 
-    def __str__(self):
-        authorships = list(self.authorships.all())
+                items.append(pub)
+
+            reversion.set_comment('biblatex import [%s items]' % len(items))
+            if user:
+                reversion.set_user(user)
+
+            return items
+
+    def author_date_key(self, parentheses=False):
+        authorships = list(self.authorships.filter(role='author').order_by('order'))
         if len(authorships) == 0:
             author_text = '<no authors>'
         elif len(authorships) == 1:
@@ -224,14 +279,19 @@ class Publication(models.Model):
                 authorships[1].person.last_name
             )
         else:
-            author_text = '%s et al.' % authorships[1].person.last_name
+            author_text = '%s et al.' % authorships[0].person.last_name
 
+        if parentheses:
+            return '%s (%s)' % (author_text, self.year)
+        else:
+            return '%s %s' % (author_text, self.year)
+
+    def __str__(self):
         if len(self.title) > 25:
             title = self.title[:25].strip() + '...'
         else:
             title = self.title[:25]
-
-        return '%s %s: "%s"' % (author_text, self.year, title)
+        return '%s: "%s"' % (self.author_date_key(), title)
 
 
 class Authorship(models.Model):
@@ -243,8 +303,11 @@ class Authorship(models.Model):
     class Meta:
         ordering = ['role', 'order']
 
+    def __str__(self):
+        return '%s (%s)' % (self.person, self.role)
 
-class Record(GeoModel):
+
+class Record(GeoModel, TaggedModel, AttachableModel):
     name = models.CharField(max_length=255)
     date = models.DateField()
     description = models.TextField(blank=True)
@@ -252,7 +315,9 @@ class Record(GeoModel):
         choices=[
             ('sediment_core', 'Sediment Core'),
             ('ice_core', 'Ice Core'),
-            ('peat_core', 'Peat Core')
+            ('peat_core', 'Peat Core'),
+            ('water_sample', 'Water Sample'),
+            ('section', 'Section')
         ],
         max_length=55
     )
@@ -264,11 +329,41 @@ class Record(GeoModel):
         self.cache_bounds()
         super().save(*args, **kwargs)
 
+    def author_date_key(self, parentheses=False):
+        authorships = list(self.record_authorships.all().order_by('order'))
+        if len(authorships) == 0:
+            author_text = '<no authors>'
+        elif len(authorships) == 1:
+            author_text = authorships[0].person.last_name
+        elif len(authorships) == 2:
+            author_text = '%s and %s' % (
+                authorships[0].person.last_name,
+                authorships[1].person.last_name
+            )
+        else:
+            author_text = '%s et al.' % authorships[0].person.last_name
+
+        if parentheses:
+            return '%s (%s)' % (author_text, self.date.year)
+        else:
+            return '%s %s' % (author_text, self.date.year)
+
+    def __str__(self):
+        return '%s: %s' % (self.author_date_key(), self.name)
+
+
+class RecordFeatureRelation(models.Model):
+    record = models.ForeignKey(Record, models.CASCADE, related_name='feature_relation')
+    feature = models.ForeignKey(Feature, models.CASCADE, related_name='record_relation')
+    relationship = models.CharField(max_length=55, default='intersects', choices=[
+        ('intersects', 'Intersects')
+    ])
+
 
 class RecordAuthorship(models.Model):
     record = models.ForeignKey(Record, models.CASCADE, related_name='record_authorships')
     person = models.ForeignKey(Person, models.PROTECT, related_name='record_authorships')
-    role = models.CharField(max_length=55, choices=[
+    role = models.CharField(max_length=55, default='assisted', choices=[
         ('assisted', 'Assisted'),
         ('collected', 'Collected'),
         ('funded', 'Funded'),
@@ -281,11 +376,14 @@ class RecordAuthorship(models.Model):
     class Meta:
         ordering = ['order']
 
+    def __str__(self):
+        return '%s (%s)' % (self.person, self.role)
+
 
 class RecordReference(models.Model):
     record = models.ForeignKey(Record, on_delete=models.CASCADE, related_name='record_uses')
     publication = models.ForeignKey(Publication, on_delete=models.CASCADE, related_name='record_uses')
-    type = models.CharField(max_length=55, choices=[
+    type = models.CharField(max_length=55, default='refers_to', choices=[
         ('refers_to', 'Refers to'),
         ('contains_data_from', 'Contains data from')
     ])
