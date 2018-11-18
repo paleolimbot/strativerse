@@ -89,3 +89,14 @@ def wkt_bounds(value):
         "ymin": None,
         "ymax": None
     }
+
+
+def wkt_geometry_type(value):
+    if not value:
+        return ''
+
+    match = re.compile(r'^[A-Z]+').match(value)
+    if match:
+        return match.group(0)
+    else:
+        return ''
