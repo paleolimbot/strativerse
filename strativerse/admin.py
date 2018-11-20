@@ -78,33 +78,11 @@ class PersonAdmin(VersionAdmin):
 
         with reversion.create_revision(atomic=True):
             all_people = ', '.join(str(p) for p in people)
-            target_person = people.pop(0)
-            for renamed_person in people:
-                models.Alias.objects.filter(person=renamed_person).update(person=target_person)
-                models.Authorship.objects.filter(person=renamed_person).update(person=target_person)
-                models.RecordAuthorship.objects.filter(person=renamed_person).update(person=target_person)
+            target_person = models.Person.combine_people(people)
 
-                for tag in list(renamed_person.tags.all()):
-                    try:
-                        target_person.tags.get(type=tag.type, key=tag.key)
-                    except models.Tag.DoesNotExist:
-                        tag.object_id = target_person.pk
-                        tag.save()
-
-                for attachment in list(renamed_person.attachments.all()):
-                    try:
-                        target_person.attachments.get(type=attachment.type, key=attachment.key)
-                    except models.Tag.DoesNotExist:
-                        attachment.object_id = target_person.pk
-                        attachment.save()
-
-                renamed_person.delete()
-
-            target_person.save()
             self.message_user(request, 'Updated %s person objects; Combined %s' % (len(people), all_people))
             reversion.set_user(request.user)
             reversion.set_comment('Combined ' + all_people)
-
             return HttpResponseRedirect(
                 reverse_lazy('admin:strativerse_person_change', kwargs={'object_id': target_person.pk})
             )

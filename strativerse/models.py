@@ -146,6 +146,46 @@ class Person(TaggedModel, AttachableModel):
         else:
             return self.last_name
 
+    @staticmethod
+    def combine_people(people):
+        people = list(people)
+        n_pubs = [p.authorships.all().count() for p in people]
+        max_pubs = max(n_pubs)
+        max_index = [n for n in n_pubs if n == max_pubs][0]
+
+        target_person = people.pop(max_index)
+        for renamed_person in people:
+            # could use Queryset.update() here, but it doesn't send any signals to reversion
+            # not important for Alias objects, since we're about to delete the objects
+            # they come from and save the one they're going to
+            Alias.objects.filter(person=renamed_person).update(person=target_person)
+            for authorship in Authorship.objects.filter(person=renamed_person):
+                authorship.person = target_person
+                authorship.save()
+
+            for authorship in RecordAuthorship.objects.filter(person=renamed_person):
+                authorship.person = target_person
+                authorship.save()
+
+            for tag in list(renamed_person.tags.all()):
+                try:
+                    target_person.tags.get(type=tag.type, key=tag.key)
+                except Tag.DoesNotExist:
+                    tag.object_id = target_person.pk
+                    tag.save()
+
+            for attachment in list(renamed_person.attachments.all()):
+                try:
+                    target_person.attachments.get(type=attachment.type, key=attachment.key)
+                except Tag.DoesNotExist:
+                    attachment.object_id = target_person.pk
+                    attachment.save()
+
+            renamed_person.delete()
+
+        target_person.save()
+        return target_person
+
 
 class ContactInfo(models.Model):
     updated = models.DateField()
