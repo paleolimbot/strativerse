@@ -2,6 +2,7 @@
 from django.contrib import admin
 from django.http import HttpResponseRedirect
 from django.urls import reverse_lazy
+from django.utils.html import format_html, mark_safe
 from django.contrib.contenttypes.admin import GenericTabularInline
 from reversion.admin import VersionAdmin
 import reversion
@@ -66,9 +67,25 @@ class FeatureAdmin(VersionAdmin):
 @admin.register(models.Person)
 class PersonAdmin(VersionAdmin):
     inlines = [ContactInfoInline, AliasInline, TagInline, AttachmentInline]
-    list_display = ['last_name', 'given_names', 'suffix']
+    list_display = ['last_name', 'given_names', 'suffix', 'publications']
     search_fields = ['last_name', 'given_names', 'aliases__alias']
     actions = ['combine_people']
+
+    def publications(self, person, max_pubs=1):
+        pubs = models.Publication.objects.filter(authorships__person=person).distinct()
+        n_pubs = pubs.count()
+        out = ', '.join(str(pub.admin_link(text=str(pub))) for pub in pubs[:max_pubs])
+        if n_pubs > max_pubs:
+
+            more = format_html(
+                ' <a href="{}?authorships__person__id__exact={}">+{} more</a>',
+                reverse_lazy('admin:strativerse_publication_changelist'),
+                person.id,
+                n_pubs - max_pubs
+            )
+            return mark_safe(out + more)
+        else:
+            return mark_safe(out)
 
     def combine_people(self, request, queryset):
         people = list(queryset)
@@ -89,12 +106,19 @@ class PersonAdmin(VersionAdmin):
     combine_people.short_description = 'Combine person objects'
 
 
+class FilterableRelatedOnlyFilter(admin.RelatedOnlyFieldListFilter):
+    template = 'strativerse/admin/filterable_filter.html'
+
+
 @admin.register(models.Publication)
 class PublicationAdmin(VersionAdmin):
     inlines = [AuthorshipInline, TagInline, AttachmentInline]
-    list_display = ['author_date_key', 'title', 'year', 'doi', 'url', 'slug']
+    list_display = ['author_date_key', 'title', 'year', 'external_link', 'slug']
     search_fields = ['authorships__person__last_name', 'authorships__person__given_names',
                      'authorships__person__aliases__alias', 'title', 'year', 'doi']
+    list_filter = [
+        ('authorships__person', FilterableRelatedOnlyFilter),
+    ]
 
 
 @admin.register(models.Record)

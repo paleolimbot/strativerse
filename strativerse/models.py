@@ -7,6 +7,8 @@ from django.contrib.contenttypes.models import ContentType
 from django.contrib.contenttypes.fields import GenericRelation
 from django.core.validators import RegexValidator, ValidationError
 from django.db import models
+from django.utils.html import format_html
+from django.urls import reverse_lazy
 from django.contrib.auth.models import User
 import reversion
 
@@ -240,6 +242,48 @@ class Publication(TaggedModel, AttachableModel):
 
     class Meta:
         ordering = ['year', 'slug']
+
+    def get_absolute_url(self):
+        raise NotImplementedError()
+
+    def external_url(self):
+        if self.doi:
+            return 'https://doi.org/' + self.doi
+        elif self.url:
+            return self.url
+        else:
+            return None
+
+    def external_link(self, text=None):
+        url = self.external_url()
+        if url is None and text is None:
+            return '<no link>'
+        elif url is None:
+            return text
+        elif self.doi:
+            if text is None:
+                text = 'doi:' + self.doi
+            return format_html('<a href="{}" target="_blank">{}</a>', 'https://doi.org/' + self.doi, text)
+        elif self.url:
+            if text is None:
+                text = self.url
+            return format_html('<a href="{}" target="_blank">{}</a>', self.url, text)
+        else:
+            return '<no link>'
+
+    def admin_link(self, text=None):
+        if text is None:
+            text = str(self)
+        return format_html(
+            '<a href="{}">{}</a>',
+            reverse_lazy('admin:strativerse_publication_change', kwargs={'object_id': self.pk}),
+            text
+        )
+
+    def link(self, text=None):
+        if text is None:
+            text = str(self)
+        return format_html('<a href="{}">{}</a>', self.get_absolute_url(), text)
 
     def update_from_bibtex(self, update_authors=False):
         key = self.slug
