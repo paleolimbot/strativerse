@@ -1,4 +1,6 @@
 
+import re
+
 from pybtex.database import parse_string as parse_bibtex
 from pybtex.database import BibliographyData
 
@@ -142,6 +144,15 @@ class Person(TaggedModel, AttachableModel):
         verbose_name_plural = 'people'
         ordering = ['last_name', 'given_names']
 
+    def admin_link(self, text=None):
+        if text is None:
+            text = str(self)
+        return format_html(
+            '<a href="{}">{}</a>',
+            reverse_lazy('admin:strativerse_person_change', kwargs={'object_id': self.pk}),
+            text
+        )
+
     def __str__(self):
         if self.given_names:
             return ' '.join((self.given_names, self.last_name))
@@ -222,6 +233,10 @@ class Alias(models.Model):
     def __str__(self):
         return self.alias
 
+    @staticmethod
+    def clean_alias(value):
+        return re.sub(r'([A-Z])\.', r'\1', value)
+
 
 def validate_biblatex(value):
     try:
@@ -241,7 +256,7 @@ class Publication(TaggedModel, AttachableModel):
     year = models.IntegerField()
 
     class Meta:
-        ordering = ['year', 'slug']
+        ordering = ['slug']
 
     def get_absolute_url(self):
         raise NotImplementedError()
@@ -313,12 +328,15 @@ class Publication(TaggedModel, AttachableModel):
             for role, person_list in entry.persons.items():
                 for i, p in enumerate(person_list):
                     try:
-                        person = Alias.objects.get(alias=str(p)).person
+                        person = Alias.objects.get(alias=Alias.clean_alias(str(p))).person
                     except Alias.DoesNotExist:
                         person = Person.objects.create(
                             given_names=' '.join(p.bibtex_first_names).replace('{', '').replace('}', '').strip(),
                             last_name=' '.join(p.last_names).replace('{', '').replace('}', '').strip()
                         )
+                        Alias.objects.create(person=person, alias=Alias.clean_alias(str(p)))
+
+                    if not Alias.objects.filter(alias=str(p)).count():
                         Alias.objects.create(person=person, alias=str(p))
 
                     Authorship.objects.create(
@@ -375,7 +393,7 @@ class Publication(TaggedModel, AttachableModel):
             title = self.title[:25].strip() + '...'
         else:
             title = self.title[:25]
-        return '%s: "%s"' % (self.author_date_key(), title)
+        return '%s: "%s"' % (self.slug, title)
 
 
 class Authorship(models.Model):
@@ -393,21 +411,38 @@ class Authorship(models.Model):
 
 class Record(GeoModel, TaggedModel, AttachableModel):
     name = models.CharField(max_length=255)
-    date = models.DateField()
+    date_collected = models.DateField()
     description = models.TextField(blank=True)
+    feature = models.ForeignKey(Feature, on_delete=models.SET_NULL, blank=True, null=True)
     type = models.CharField(
         choices=[
             ('sediment_core', 'Sediment Core'),
             ('ice_core', 'Ice Core'),
             ('peat_core', 'Peat Core'),
             ('water_sample', 'Water Sample'),
-            ('section', 'Section')
+            ('section', 'Section'),
+            ('historical_measurements', 'Historical Measurements')
         ],
         max_length=55
     )
+    resolution = models.CharField(
+        choices=[
+            ('lt_daily', 'Less than daily'),
+            ('daily', 'Daily'),
+            ('monthly', 'Monthly'),
+            ('yearly', 'Yearly'),
+            ('decadal', 'Decadal'),
+            ('centennial', 'Centennial'),
+            ('millennial', 'Millennial'),
+            ('gt_millennial', 'Greater than millennial')
+        ],
+        max_length=55
+    )
+    min_year = models.FloatField()
+    max_year = models.FloatField()
 
     class Meta:
-        ordering = ['date']
+        ordering = ['date_collected']
 
     def save(self, *args, **kwargs):
         self.cache_bounds()
@@ -428,20 +463,21 @@ class Record(GeoModel, TaggedModel, AttachableModel):
             author_text = '%s et al.' % authorships[0].person.last_name
 
         if parentheses:
-            return '%s (%s)' % (author_text, self.date.year)
+            return '%s (%s)' % (author_text, self.date_collected.year)
         else:
-            return '%s %s' % (author_text, self.date.year)
+            return '%s %s' % (author_text, self.date_collected.year)
+
+    def admin_link(self, text=None):
+        if text is None:
+            text = str(self)
+        return format_html(
+            '<a href="{}">{}</a>',
+            reverse_lazy('admin:strativerse_record_change', kwargs={'object_id': self.pk}),
+            text
+        )
 
     def __str__(self):
         return '%s: %s' % (self.author_date_key(), self.name)
-
-
-class RecordFeatureRelation(models.Model):
-    record = models.ForeignKey(Record, models.CASCADE, related_name='feature_relation')
-    feature = models.ForeignKey(Feature, models.CASCADE, related_name='record_relation')
-    relationship = models.CharField(max_length=55, default='intersects', choices=[
-        ('intersects', 'Intersects')
-    ])
 
 
 class RecordAuthorship(models.Model):
