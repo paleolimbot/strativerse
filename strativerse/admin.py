@@ -42,23 +42,29 @@ class HiddenRelatedListFilter(admin.RelatedOnlyFieldListFilter):
     def queryset(self, request, queryset):
         return queryset.filter(**self.used_parameters)
 
-    def expected_parameters(self):
-        return [self.lookup_kwarg]
-
 
 class AuthorListFilter(HiddenRelatedListFilter):
     title = 'Author'
     model = models.Person
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
 
 
 class PublicationListFilter(HiddenRelatedListFilter):
     title = 'Publication'
     model = models.Publication
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
 
 class RecordListFilter(HiddenRelatedListFilter):
     title = 'Record'
     model = models.Record
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
 
 
 # ---- inlines ----
@@ -113,7 +119,7 @@ class FeatureAdmin(VersionAdmin):
 @admin.register(models.Person)
 class PersonAdmin(VersionAdmin):
     inlines = [ContactInfoInline, AliasInline, TagInline, AttachmentInline]
-    list_display = ['last_name', 'given_names', 'suffix', 'publications', 'records']
+    list_display = ['last_name', 'given_names', 'suffix', 'external_link', 'publications', 'records']
     search_fields = ['last_name', 'given_names', 'aliases__alias']
     actions = ['combine_people']
     list_filter = [
@@ -177,7 +183,7 @@ class PublicationAdmin(VersionAdmin):
     inlines = [AuthorshipInline, TagInline, AttachmentInline]
     list_display = ['author_date_key', 'title', 'year', 'external_link', 'authors', 'records']
     search_fields = ['authorships__person__last_name', 'authorships__person__given_names',
-                     'authorships__person__aliases__alias', 'title', 'year', 'doi']
+                     'authorships__person__aliases__alias', 'title', 'year', 'DOI']
     list_filter = [
         ('authorships__person', AuthorListFilter),
         ('record_uses__record', RecordListFilter),

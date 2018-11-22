@@ -1,8 +1,9 @@
 
 import re
-
-from pybtex.database import parse_string as parse_bibtex
-from pybtex.database import BibliographyData
+import json
+import os
+import copy
+import unicodedata
 
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
@@ -97,6 +98,44 @@ class RecursiveModel(models.Model):
         self.recursive_depth = self._calculate_recursive_depth()
 
 
+class LinkableModel(models.Model):
+
+    class Meta:
+        abstract = True
+
+    def get_admin_url(self):
+        return reverse_lazy('admin:strativerse_{}_change'.format(self._meta.model_name), kwargs={'object_id': self.pk})
+
+    def get_absolute_url(self):
+        raise NotImplementedError()
+
+    def get_external_url(self):
+        return None
+
+    def admin_link(self, text=None):
+        if text is None:
+            text = str(self)
+        return format_html('<a href="{}">{}</a>', self.get_admin_url(), text)
+
+    def link(self, text=None):
+        if text is None:
+            text = str(self)
+        return format_html('<a href="{}">{}</a>', self.get_absolute_url(), text)
+
+    def external_link(self, text=None, blank_text=''):
+        url = self.get_external_url()
+        if url is None and text is None:
+            return blank_text
+        elif url is None:
+            return text() if callable(text) else text
+        elif text is None:
+            return format_html('<a href="{}" target="_blank">{}</a>', url, str(self))
+        elif callable(text):
+            return format_html('<a href="{}" target="_blank">{}</a>', url, text())
+        else:
+            return format_html('<a href="{}" target="_blank">{}</a>', url, text)
+
+
 class TaggedModel(models.Model):
     tags = GenericRelation(Tag)
 
@@ -111,7 +150,7 @@ class AttachableModel(models.Model):
         abstract = True
 
 
-class Feature(TaggedModel, AttachableModel, RecursiveModel, GeoModel):
+class Feature(TaggedModel, LinkableModel, AttachableModel, RecursiveModel, GeoModel):
     name = models.CharField(max_length=255)
     type = models.CharField(
         choices=[
@@ -135,23 +174,27 @@ class Feature(TaggedModel, AttachableModel, RecursiveModel, GeoModel):
         return '%s <%s %s>' % (self.name, self.type, self.pk)
 
 
-class Person(TaggedModel, AttachableModel):
+class Person(TaggedModel, LinkableModel, AttachableModel):
     given_names = models.CharField(max_length=255, blank=True)
     last_name = models.CharField(max_length=255)
     suffix = models.CharField(max_length=10, blank=True)
+    orc_id = models.CharField(max_length=20, blank=True, validators=[
+        RegexValidator(
+            r'^[0-9]{4}-[0-9]{4}-[0-9]{4}-[0-9]{4}$',
+            message='Value must be a valid ORCID (0000-0000-0000-0000)'
+        )
+    ])
 
     class Meta:
         verbose_name_plural = 'people'
         ordering = ['last_name', 'given_names']
 
-    def admin_link(self, text=None):
-        if text is None:
-            text = str(self)
-        return format_html(
-            '<a href="{}">{}</a>',
-            reverse_lazy('admin:strativerse_person_change', kwargs={'object_id': self.pk}),
-            text
-        )
+    def get_external_url(self):
+        return 'https://orcid.org/' + self.orc_id if self.orc_id else None
+
+    def external_link(self, text=None, blank_text=''):
+        url = self.get_external_url()
+        return blank_text if url is None else super().external_link(text=self.orc_id, blank_text=blank_text)
 
     def __str__(self):
         if self.given_names:
@@ -164,7 +207,7 @@ class Person(TaggedModel, AttachableModel):
         people = list(people)
         n_pubs = [p.authorships.all().count() for p in people]
         max_pubs = max(n_pubs)
-        max_index = [n for n in n_pubs if n == max_pubs][0]
+        max_index = [i for i, n in enumerate(n_pubs) if n == max_pubs][0]
 
         target_person = people.pop(max_index)
         for renamed_person in people:
@@ -238,106 +281,143 @@ class Alias(models.Model):
         return re.sub(r'([A-Z])\.', r'\1', value)
 
 
-def validate_biblatex(value):
-    try:
-        bib = parse_bibtex(value, bib_format='bibtex')
-        if len(bib.entries) != 1:
-            raise ValidationError('Text must contain exactly one biblatex entry')
-    except Exception as e:
-        raise ValidationError('Biblatex parse error: "%s"' % e)
-
-
-class Publication(TaggedModel, AttachableModel):
+class Publication(TaggedModel, LinkableModel, AttachableModel):
     slug = models.CharField(max_length=55, unique=True)
+    type = models.CharField(max_length=55, choices=[
+        # source: https://github.com/citation-style-language/schema/blob/master/csl-types.rnc
+        ('article', 'article'),
+        ('article-journal', 'article-journal'),
+        ('article-magazine', 'article-magazine'),
+        ('article-newspaper', 'article-newspaper'),
+        ('bill', 'bill'),
+        ('book', 'book'),
+        ('broadcast', 'broadcast'),
+        ('chapter', 'chapter'),
+        ('dataset', 'dataset'),
+        ('entry', 'entry'),
+        ('entry-dictionary', 'entry-dictionary'),
+        ('entry-encyclopedia', 'entry-encyclopedia'),
+        ('figure', 'figure'),
+        ('graphic', 'graphic'),
+        ('interview', 'interview'),
+        ('legal_case', 'legal_case'),
+        ('legislation', 'legislation'),
+        ('manuscript', 'manuscript'),
+        ('map', 'map'),
+        ('motion_picture', 'motion_picture'),
+        ('musical_score', 'musical_score'),
+        ('pamphlet', 'pamphlet'),
+        ('paper-conference', 'paper-conference'),
+        ('patent', 'patent'),
+        ('personal_communication', 'personal_communication'),
+        ('post', 'post'),
+        ('post-weblog', 'post-weblog'),
+        ('report', 'report'),
+        ('review', 'review'),
+        ('review-book', 'review-book'),
+        ('song', 'song'),
+        ('speech', 'speech'),
+        ('thesis', 'thesis'),
+        ('treaty', 'treaty'),
+        ('webpage', 'webpage'),
+    ])
     title = models.CharField(max_length=255)
-    biblatex = models.TextField(validators=[validate_biblatex, ])
-    doi = models.CharField(max_length=255, blank=True)
-    url = models.URLField(blank=True)
+    DOI = models.CharField(max_length=255, blank=True)
+    URL = models.URLField(blank=True)
+    abstract = models.TextField(blank=True)
     year = models.IntegerField()
 
     class Meta:
         ordering = ['slug']
 
-    def get_absolute_url(self):
-        raise NotImplementedError()
-
-    def external_url(self):
-        if self.doi:
-            return 'https://doi.org/' + self.doi
-        elif self.url:
-            return self.url
+    def get_external_url(self):
+        if self.DOI:
+            return 'https://doi.org/' + self.DOI
+        elif self.URL:
+            return self.URL
         else:
             return None
 
-    def external_link(self, text=None):
-        url = self.external_url()
-        if url is None and text is None:
-            return '<no link>'
-        elif url is None:
-            return text
-        elif self.doi:
-            if text is None:
-                text = 'doi:' + self.doi
-            return format_html('<a href="{}" target="_blank">{}</a>', 'https://doi.org/' + self.doi, text)
-        elif self.url:
-            if text is None:
-                text = self.url
-            return format_html('<a href="{}" target="_blank">{}</a>', self.url, text)
-        else:
-            return '<no link>'
-
-    def admin_link(self, text=None):
+    def external_link(self, text=None, blank_text=''):
         if text is None:
-            text = str(self)
-        return format_html(
-            '<a href="{}">{}</a>',
-            reverse_lazy('admin:strativerse_publication_change', kwargs={'object_id': self.pk}),
-            text
-        )
+            def text():
+                if self.DOI:
+                    return 'doi:' + self.DOI
+                elif self.URL:
+                    return self.URL
+                else:
+                    return blank_text
 
-    def link(self, text=None):
-        if text is None:
-            text = str(self)
-        return format_html('<a href="{}">{}</a>', self.get_absolute_url(), text)
+        return super().external_link(text, blank_text=blank_text)
 
-    def update_from_bibtex(self, update_authors=False):
-        key = self.slug
-        bib = parse_bibtex(self.biblatex, 'bibtex')
-        entry = bib.entries[list(bib.entries.keys())[0]]
+    def update_from_csl_json(self, entry, update_authors=False, update_slug=False, update_tags=False):
 
-        # create publication
-        if 'year' in entry.fields:
-            year = int(entry.fields['year'])
-        elif 'date' in entry.fields:
-            year = int(entry.fields['date'].strip()[:4])
-        else:
-            raise ValidationError('No year in entry "%s"' % key)
+        if not isinstance(entry, dict):
+            raise ValidationError('entry must be a dictionary')
 
-        self.title = entry.fields['title'].replace('{', '').replace('}', '') if 'title' in entry.fields else 'Untitled'
-        self.doi = entry.fields['doi'].replace('\\_', '_') if 'doi' in entry.fields else ''
-        self.url = entry.fields['url'].replace('\\_', '_') if 'url' in entry.fields else ''
-        self.year = year
+        entry = copy.deepcopy(entry)
+        entry.pop('id', None)  # discard id given by file
+
+        for key in ('title', 'abstract', 'DOI', 'URL', 'type'):
+            if key in entry:
+                setattr(self, key, entry.pop(key))
+
+        # year is tricky to get, can be encoded in two ways
+        # don't pop...this will get encoded in tags so detail is not lost
+        try:
+            if 'issued' in entry and 'date-parts' in entry['issued']:
+                self.year = int(entry['issued']['date-parts'][0][0])
+            elif 'issued' in entry and 'raw' in entry['issued']:
+                self.year = int(entry['issued']['raw'][0].strip()[:4])
+        except (ValueError, KeyError, TypeError):
+            raise ValidationError('Could not extract year from entry')
+
+        if update_authors and not self.pk:
+            self.save()
 
         if update_authors:
-            if not self.pk:
-                self.save()
+            self.authorships.all().delete()
 
-            for authorship in self.authorships.all():
-                authorship.delete()
+        for role in ('author', 'collection-editor', 'composer', 'container-author', 'director', 'editor',
+                     'editorial-director', 'illustrator', 'interviewer', 'original-author',
+                     'recipient', 'reviewed-author', 'translator'):
+            # need to pop all the name elements from entry before getting to the
+            # 'encode everything as tags' bit at the end
+            person_list = entry.pop(role, [])
 
-            for role, person_list in entry.persons.items():
+            if not isinstance(person_list, list):
+                raise ValidationError('entry["{}"] is not a list'.format(role))
+
+            if update_authors:
                 for i, p in enumerate(person_list):
+                    if not isinstance(p, dict):
+                        raise ValidationError('entry["{}"][{}] is not a dict'.format(role, i))
+
+                    last_name = p.pop('family', '')
+                    first_name = p.pop('given', '')
+                    suffix = p.pop('suffix', '')
+                    if 'non-dropping-particle' in p:
+                        last_name = p['non-dropping-particle'] + ' ' + last_name
+                    if 'literal' in p:
+                        last_name = p['literal']
+
+                    if not last_name:
+                        raise ValidationError('entry["%s"][%s] has no last name or literal element' % (role, i))
+                    elif not first_name:
+                        alias = last_name
+                    else:
+                        alias = '{}, {} {}'.format(last_name, first_name, suffix)
+                    alias = Alias.clean_alias(alias)
+
                     try:
-                        person = Alias.objects.get(alias=Alias.clean_alias(str(p))).person
+                        person = Alias.objects.get(alias=alias).person
                     except Alias.DoesNotExist:
                         person = Person.objects.create(
-                            given_names=' '.join(p.bibtex_first_names).replace('{', '').replace('}', '').strip(),
-                            last_name=' '.join(p.last_names).replace('{', '').replace('}', '').strip()
+                            given_names=first_name,
+                            last_name=last_name,
+                            suffix=suffix
                         )
-                        Alias.objects.create(person=person, alias=Alias.clean_alias(str(p)))
-
-                    if not Alias.objects.filter(alias=str(p)).count():
-                        Alias.objects.create(person=person, alias=str(p))
+                        Alias.objects.create(person=person, alias=alias)
 
                     Authorship.objects.create(
                         publication=self,
@@ -346,28 +426,106 @@ class Publication(TaggedModel, AttachableModel):
                         order=i
                     )
 
-    @staticmethod
-    def import_biblatex(text, update_authors=True, user=None):
-        with reversion.create_revision(atomic=True):
-            bib = parse_bibtex(text, bib_format='bibtex')
-            items = []
-            for key, entry in bib.entries.items():
-                # check for key already in database (update everything except authorship if it is)
+        # generate a unique slug like 'dunnington_etal16'
+        if update_slug:
+            adk = self.author_date_key(parentheses=True)
+            slug = re.sub(r'\([0-9]{2}([0-9]{2})\)', r'\1', adk).\
+                replace(' and ', '_').\
+                replace(' et al. ', '_etal').\
+                replace('<no authors>', 'no_authors').\
+                lower()
+
+            # there shouldn't be any whitespace in the slug
+            slug = re.sub(r'\s+', '', slug)
+
+            # this gets rid of accents and weird but totally valid unicode characters
+            slug = unicodedata.normalize('NFKD', slug).encode('ascii', 'ignore').decode('ascii')
+
+            for suffix in ('', ) + tuple('abcdefghijklmnopqrstufwxyz'):
                 try:
-                    pub = Publication.objects.get(slug=key)
+                    qs = Publication.objects.all()
+                    if self.pk:
+                        qs = qs.exclude(pk=self.pk)
+                    qs.get(slug=slug + suffix)
                 except Publication.DoesNotExist:
-                    pub = Publication(slug=key, biblatex=BibliographyData({key: entry}).to_string('bibtex'))
+                    self.slug = slug + suffix
+                    break
+            else:
+                raise ValidationError('Cannot create unique id for slug "{}"'.format(slug))
 
-                pub.update_from_bibtex(update_authors=update_authors)
-                pub.save()
+        # encode everything left in entry as tags
+        if update_tags:
+            if not self.pk:
+                self.save()
+            else:
+                self.tags.filter(type='meta').delete()
 
-                items.append(pub)
+            for key, value in entry.items():
+                if isinstance(value, dict) or isinstance(value, list):
+                    value = 'application/json:' + json.dumps(value)
+                self.tags.create(type='meta', key=key, value=value)
 
-            reversion.set_comment('biblatex import [%s items]' % len(items))
-            if user:
-                reversion.set_user(user)
+    @staticmethod
+    def import_csl_json(text, update_authors=True, user=None, chunk_size=50):
 
-            return items
+        text_label = re.sub(r'\s+', ' ', repr(text)[:100].replace('\n', ' '))
+        if isinstance(text, str):
+            if os.path.exists(text):
+                with open(text, 'r') as f:
+                    entries = json.load(f)
+            else:
+                entries = json.loads(text)
+        else:
+            entries = text
+
+        if isinstance(entries, dict):
+            entries = [entries]
+        elif not isinstance(entries, list):
+            raise ValidationError('text must be a list of CSL JSON entries')
+        elif len(entries) == 0:
+            return []
+
+        items = []
+
+        # chunk by for each revision to avoid too many variables error
+        for chunk in range(int((len(entries) - 1) / chunk_size) + 1):
+            with reversion.create_revision(atomic=True):
+                chunk_entries = entries[(chunk * chunk_size):((chunk + 1) * chunk_size)]
+                for entry in chunk_entries:
+                    # check for key already in database by DOI (update everything except authorship if it is)
+                    try:
+                        if 'DOI' in entry:
+                            pub = Publication.objects.get(DOI=entry['DOI'])
+                        else:
+                            pub = Publication()
+                    except Publication.DoesNotExist:
+                        pub = Publication()
+
+                    pub.update_from_csl_json(entry, update_authors=update_authors, update_slug=True, update_tags=True)
+                    pub.save()
+
+                    # check for existing publication with same title and base slug
+                    try:
+                        slug_base = re.sub(r'[a-z]$', '', pub.slug)
+                        existing_pub = Publication.objects.get(title=pub.title, slug__startswith=slug_base)
+                        pub.delete()
+                        existing_pub.update_from_csl_json(
+                            entry, update_authors=update_authors, update_slug=True, update_tags=True
+                        )
+                        existing_pub.save()
+                        pub = existing_pub
+                    except Publication.DoesNotExist:
+                        pass
+
+                    items.append(pub)
+
+                reversion.set_comment(
+                    'CSL JSON import [chunk {}, {} items]: {}'.format(chunk+1, len(chunk_entries), text_label)
+                )
+                if user:
+                    reversion.set_user(user)
+
+        return items
 
     def author_date_key(self, parentheses=False):
         authorships = list(self.authorships.filter(role='author').order_by('order'))
@@ -466,15 +624,6 @@ class Record(GeoModel, TaggedModel, AttachableModel):
             return '%s (%s)' % (author_text, self.date_collected.year)
         else:
             return '%s %s' % (author_text, self.date_collected.year)
-
-    def admin_link(self, text=None):
-        if text is None:
-            text = str(self)
-        return format_html(
-            '<a href="{}">{}</a>',
-            reverse_lazy('admin:strativerse_record_change', kwargs={'object_id': self.pk}),
-            text
-        )
 
     def __str__(self):
         return '%s: %s' % (self.author_date_key(), self.name)
