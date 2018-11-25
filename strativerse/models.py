@@ -24,7 +24,7 @@ class Tag(models.Model):
         RegexValidator(r'^[A-Za-z0-9_]+$', message='Must only contain alphanumerics or the underscore')
     ])
     value = models.CharField(max_length=255)
-    comment = models.CharField(max_length=512)
+    comment = models.CharField(max_length=512, blank=True)
     content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE)
     object_id = models.PositiveIntegerField()
     content_object = GenericForeignKey('content_type', 'object_id')
@@ -107,7 +107,7 @@ class LinkableModel(models.Model):
         return reverse_lazy('admin:strativerse_{}_change'.format(self._meta.model_name), kwargs={'object_id': self.pk})
 
     def get_absolute_url(self):
-        raise NotImplementedError()
+        return reverse_lazy('strativerse:detail', kwargs={'model': type(self).__name__.lower(), 'pk': self.pk})
 
     def get_external_url(self):
         return None
@@ -164,6 +164,7 @@ class Feature(TaggedModel, LinkableModel, AttachableModel, RecursiveModel, GeoMo
         default='feature',
         max_length=55
     )
+    description = models.TextField(blank=True)
 
     def save(self, *args, **kwargs):
         self.cache_bounds()
@@ -372,27 +373,30 @@ class Publication(TaggedModel, LinkableModel, AttachableModel):
         except (ValueError, KeyError, TypeError):
             raise ValidationError('Could not extract year from entry')
 
-        if update_authors and not self.pk:
-            self.save()
-
         if update_authors:
-            self.authorships.all().delete()
 
-        for role in ('author', 'collection-editor', 'composer', 'container-author', 'director', 'editor',
-                     'editorial-director', 'illustrator', 'interviewer', 'original-author',
-                     'recipient', 'reviewed-author', 'translator'):
-            # need to pop all the name elements from entry before getting to the
-            # 'encode everything as tags' bit at the end
-            person_list = entry.pop(role, [])
+            if not self.pk:
+                self.save()
+            else:
+                # not sending a reversion signal, but we're about to update these anyway
+                self.authorships.all().delete()
 
-            if not isinstance(person_list, list):
-                raise ValidationError('entry["{}"] is not a list'.format(role))
+            for role in ('author', 'collection-editor', 'composer', 'container-author', 'director', 'editor',
+                         'editorial-director', 'illustrator', 'interviewer', 'original-author',
+                         'recipient', 'reviewed-author', 'translator'):
+                # these shouldn't be popped, because they are used to generate the citation
+                # this facilitates people's names being changed later and still being associated
+                # with the publication, whose citation stays stable over time
+                if role not in entry:
+                    continue
+                person_list = copy.deepcopy(entry[role])
 
-            if update_authors:
+                if not isinstance(person_list, list):
+                    raise ValidationError('entry["{}"] is not a list'.format(role))
+
                 for i, p in enumerate(person_list):
                     if not isinstance(p, dict):
                         raise ValidationError('entry["{}"][{}] is not a dict'.format(role, i))
-
                     last_name = p.pop('family', '')
                     first_name = p.pop('given', '')
                     suffix = p.pop('suffix', '')
@@ -466,7 +470,7 @@ class Publication(TaggedModel, LinkableModel, AttachableModel):
                 self.tags.create(type='meta', key=key, value=value)
 
     @staticmethod
-    def import_csl_json(text, update_authors=True, user=None, chunk_size=50):
+    def import_csl_json(text, update_authors=True, user=None, chunk_size=25):
 
         text_label = re.sub(r'\s+', ' ', repr(text)[:100].replace('\n', ' '))
         if isinstance(text, str):
@@ -567,37 +571,60 @@ class Authorship(models.Model):
         return '%s (%s)' % (self.person, self.role)
 
 
-class Record(GeoModel, TaggedModel, AttachableModel):
+class Parameter(TaggedModel, AttachableModel, LinkableModel):
+    name = models.CharField(max_length=255)
+    slug = models.CharField(max_length=255, validators=[RegexValidator(r'^[^/][a-zA-Z_/]+[^/]$')], unique=True)
+    description = models.TextField(blank=True)
+    preparation = models.CharField(max_length=255)
+    instrumentation = models.CharField(max_length=255)
+
+    class Meta:
+        ordering = ['name']
+
+    def __str__(self):
+        return self.name
+
+
+class Record(GeoModel, TaggedModel, AttachableModel, LinkableModel):
     name = models.CharField(max_length=255)
     date_collected = models.DateField()
     description = models.TextField(blank=True)
     feature = models.ForeignKey(Feature, on_delete=models.SET_NULL, blank=True, null=True)
+    medium = models.CharField(
+        choices=[
+            ('lake_sediment', 'Lake Sediment'),
+            ('marine_sediment', 'Marine Sediment'),
+            ('glacier_ice', 'Glacier Ice'),
+            ('peat', 'Peat'),
+            ('lake_water', 'Lake Water'),
+            ('river_water', 'River Water'),
+            ('ocean_water', 'Ocean Water'),
+            ('wood', 'Wood'),
+            ('surficial_sediment', 'Surficial sediment'),
+            ('rock', 'Rock'),
+            ('mollusk_shell', 'Mollusk shell'),
+            ('coral', 'Coral'),
+            ('speleothem', 'Speleothem'),
+            ('sclerosponge', 'Sclerosponge'),
+            ('air', 'Air'),
+            ('hybrid', 'Hybrid'),
+            ('other', 'Other')
+        ],
+        max_length=55
+    )
     type = models.CharField(
         choices=[
-            ('sediment_core', 'Sediment Core'),
-            ('ice_core', 'Ice Core'),
-            ('peat_core', 'Peat Core'),
-            ('water_sample', 'Water Sample'),
+            ('samples', 'Samples'),
+            ('core', 'Core'),
             ('section', 'Section'),
-            ('historical_measurements', 'Historical Measurements')
+            ('sensor', 'Sensor'),
+            ('other', 'Other')
         ],
         max_length=55
     )
-    resolution = models.CharField(
-        choices=[
-            ('lt_daily', 'Less than daily'),
-            ('daily', 'Daily'),
-            ('monthly', 'Monthly'),
-            ('yearly', 'Yearly'),
-            ('decadal', 'Decadal'),
-            ('centennial', 'Centennial'),
-            ('millennial', 'Millennial'),
-            ('gt_millennial', 'Greater than millennial')
-        ],
-        max_length=55
-    )
-    min_year = models.FloatField()
-    max_year = models.FloatField()
+    resolution = models.FloatField(blank=True, null=True, default=None)
+    min_year = models.FloatField(blank=True, null=True, default=None)
+    max_year = models.FloatField(blank=True, null=True, default=None)
 
     class Meta:
         ordering = ['date_collected']
@@ -656,6 +683,33 @@ class RecordReference(models.Model):
         ('refers_to', 'Refers to'),
         ('contains_data_from', 'Contains data from')
     ])
+    description = models.CharField(max_length=255, blank=True)
 
     class Meta:
         ordering = ['publication__date']
+
+    def __str__(self):
+        return ' '.join(str(part) for part in [self.record, self.type, self.publication])
+
+
+class RecordParameter(models.Model):
+    record = models.ForeignKey(Record, models.CASCADE, related_name='record_parameters')
+    parameter = models.ForeignKey(Parameter, models.PROTECT, related_name='record_parameters')
+    units = models.CharField(max_length=55)
+    position_units = models.CharField(max_length=55)
+    description = models.CharField(max_length=255, blank=True)
+
+    min_value = models.FloatField(blank=True, null=True, default=None)
+    max_value = models.FloatField(blank=True, null=True, default=None)
+    mean_value = models.FloatField(blank=True, null=True, default=None)
+    median_value = models.FloatField(blank=True, null=True, default=None)
+    max_value_year = models.FloatField(blank=True, null=True, default=None)
+    min_value_year = models.FloatField(blank=True, null=True, default=None)
+    max_value_position = models.FloatField(blank=True, null=True, default=None)
+    min_value_position = models.FloatField(blank=True, null=True, default=None)
+
+    class Meta:
+        ordering = ['parameter__name']
+
+    def __str__(self):
+        return '{} ({})'.format(self.parameter.name, self.units)

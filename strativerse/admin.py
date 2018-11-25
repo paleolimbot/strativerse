@@ -47,25 +47,20 @@ class AuthorListFilter(HiddenRelatedListFilter):
     title = 'Author'
     model = models.Person
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
 
 class PublicationListFilter(HiddenRelatedListFilter):
     title = 'Publication'
     model = models.Publication
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
 
 
 class RecordListFilter(HiddenRelatedListFilter):
     title = 'Record'
     model = models.Record
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
 
+class ParameterListFilter(HiddenRelatedListFilter):
+    title = 'Parameter'
+    model = models.Parameter
 
 # ---- inlines ----
 
@@ -106,6 +101,12 @@ class RecordReferenceInline(admin.TabularInline):
     autocomplete_fields = ['publication']
 
 
+class RecordParameterInline(admin.StackedInline):
+    model = models.RecordParameter
+    autocomplete_fields = ['parameter']
+    extra = 1
+
+
 # ---- admins ----
 
 @admin.register(models.Feature)
@@ -114,6 +115,28 @@ class FeatureAdmin(VersionAdmin):
     list_display = ['name', 'type']
     search_fields = ['name', 'type']
     list_filter = ['type']
+
+
+@admin.register(models.Parameter)
+class ParameterAdmin(VersionAdmin):
+    list_display = ['name', 'slug', 'preparation', 'instrumentation', 'records']
+    search_fields = ['name', 'slug', 'preparation', 'instrumentation']
+
+    def records(self, param, max_pubs=1):
+        pubs = models.Record.objects.filter(record_parameters__parameter=param).distinct()
+        n_pubs = pubs.count()
+        out = ', '.join(str(pub.admin_link(text=str(pub))) for pub in pubs[:max_pubs])
+        if n_pubs > max_pubs:
+
+            more = format_html(
+                ' <a href="{}?record_parameters__parameter__id__exact={}">+{} more</a>',
+                reverse_lazy('admin:strativerse_record_changelist'),
+                param.id,
+                n_pubs - max_pubs
+            )
+            return mark_safe(out + more)
+        else:
+            return mark_safe(out)
 
 
 @admin.register(models.Person)
@@ -225,15 +248,15 @@ class PublicationAdmin(VersionAdmin):
 
 @admin.register(models.Record)
 class RecordAdmin(VersionAdmin):
-    inlines = [RecordAuthorshipInline, RecordReferenceInline, TagInline, AttachmentInline]
+    inlines = [RecordAuthorshipInline, RecordReferenceInline, TagInline, AttachmentInline, RecordParameterInline]
     autocomplete_fields = ['feature']
     list_display = ['author_date_key', 'name', 'date_collected', 'type', 'description', 'people', 'publications']
     search_fields = ['name', 'description', 'record_authorship__author__last_name']
     list_filter = [
         ('record_authorships__person', AuthorListFilter),
         ('record_uses__publication', PublicationListFilter),
-        'type',
-        'resolution'
+        ('record_parameters__parameter', ParameterListFilter),
+        'type'
     ]
 
     def people(self, pub, max_auth=1):
