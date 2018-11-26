@@ -475,7 +475,7 @@ class Publication(TaggedModel, LinkableModel, AttachableModel):
         text_label = re.sub(r'\s+', ' ', repr(text)[:100].replace('\n', ' '))
         if isinstance(text, str):
             if os.path.exists(text):
-                with open(text, 'r') as f:
+                with open(text, 'r', encoding='utf-8') as f:
                     entries = json.load(f)
             else:
                 entries = json.loads(text)
