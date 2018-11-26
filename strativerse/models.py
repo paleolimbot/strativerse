@@ -322,7 +322,7 @@ class Publication(TaggedModel, LinkableModel, AttachableModel):
         ('treaty', 'treaty'),
         ('webpage', 'webpage'),
     ])
-    title = models.CharField(max_length=255)
+    title = models.CharField(max_length=1024)
     DOI = models.CharField(max_length=255, blank=True)
     URL = models.URLField(blank=True)
     abstract = models.TextField(blank=True)
