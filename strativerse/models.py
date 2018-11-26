@@ -23,8 +23,8 @@ class Tag(models.Model):
     key = models.CharField(max_length=55, validators=[
         RegexValidator(r'^[A-Za-z0-9_]+$', message='Must only contain alphanumerics or the underscore')
     ])
-    value = models.CharField(max_length=255)
-    comment = models.CharField(max_length=512, blank=True)
+    value = models.TextField()
+    comment = models.TextField()
     content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE)
     object_id = models.PositiveIntegerField()
     content_object = GenericForeignKey('content_type', 'object_id')
