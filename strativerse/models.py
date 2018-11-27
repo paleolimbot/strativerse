@@ -470,7 +470,7 @@ class Publication(TaggedModel, LinkableModel, AttachableModel):
                 self.tags.create(type='meta', key=key, value=value)
 
     @staticmethod
-    def import_csl_json(text, update_authors=True, user=None, chunk_size=25):
+    def import_csl_json(text, update_authors=True, user=None, chunk_size=25, quiet=True):
 
         text_label = re.sub(r'\s+', ' ', repr(text)[:100].replace('\n', ' '))
         if isinstance(text, str):
@@ -493,9 +493,15 @@ class Publication(TaggedModel, LinkableModel, AttachableModel):
 
         # chunk by for each revision to avoid too many variables error
         for chunk in range(int((len(entries) - 1) / chunk_size) + 1):
+            if not quiet:
+                print('Processing chunk {}'.format(chunk))
+
             with reversion.create_revision(atomic=True):
                 chunk_entries = entries[(chunk * chunk_size):((chunk + 1) * chunk_size)]
                 for entry in chunk_entries:
+                    if not quiet:
+                        print('Processing entry: {}'.format(entry.get('id', '<no id>')))
+
                     # check for key already in database by DOI (update everything except authorship if it is)
                     try:
                         if 'DOI' in entry:
