@@ -324,7 +324,7 @@ class Publication(TaggedModel, LinkableModel, AttachableModel):
     ])
     title = models.CharField(max_length=1024)
     DOI = models.CharField(max_length=255, blank=True)
-    URL = models.URLField(blank=True)
+    URL = models.URLField(max_length=512, blank=True)
     abstract = models.TextField(blank=True)
     year = models.IntegerField()
 
