@@ -579,10 +579,10 @@ class Authorship(models.Model):
 
 class Parameter(TaggedModel, AttachableModel, LinkableModel):
     name = models.CharField(max_length=255)
-    slug = models.CharField(max_length=255, validators=[RegexValidator(r'^[^/][a-zA-Z_/]+[^/]$')], unique=True)
+    slug = models.CharField(max_length=255, validators=[RegexValidator(r'^[^/][a-zA-Z0-9_/-]+[^/]$')], unique=True)
     description = models.TextField(blank=True)
-    preparation = models.CharField(max_length=255)
-    instrumentation = models.CharField(max_length=255)
+    preparation = models.CharField(max_length=255, blank=True)
+    instrumentation = models.CharField(max_length=255, blank=True)
 
     class Meta:
         ordering = ['name']
@@ -594,6 +594,11 @@ class Parameter(TaggedModel, AttachableModel, LinkableModel):
 class Record(GeoModel, TaggedModel, AttachableModel, LinkableModel):
     name = models.CharField(max_length=255)
     date_collected = models.DateField()
+    published = models.CharField(
+        max_length=55,
+        choices=[('published', 'Published'), ('draft', 'Draft')],
+        default='draft'
+    )
     description = models.TextField(blank=True)
     feature = models.ForeignKey(Feature, on_delete=models.SET_NULL, blank=True, null=True)
     medium = models.CharField(
@@ -631,6 +636,7 @@ class Record(GeoModel, TaggedModel, AttachableModel, LinkableModel):
     resolution = models.FloatField(blank=True, null=True, default=None)
     min_year = models.FloatField(blank=True, null=True, default=None)
     max_year = models.FloatField(blank=True, null=True, default=None)
+    position_units = models.CharField(max_length=55, blank=True, default='cm')
 
     class Meta:
         ordering = ['date_collected']
@@ -701,18 +707,8 @@ class RecordReference(models.Model):
 class RecordParameter(models.Model):
     record = models.ForeignKey(Record, models.CASCADE, related_name='record_parameters')
     parameter = models.ForeignKey(Parameter, models.PROTECT, related_name='record_parameters')
-    units = models.CharField(max_length=55)
-    position_units = models.CharField(max_length=55)
+    units = models.CharField(max_length=55, blank=True)
     description = models.CharField(max_length=255, blank=True)
-
-    min_value = models.FloatField(blank=True, null=True, default=None)
-    max_value = models.FloatField(blank=True, null=True, default=None)
-    mean_value = models.FloatField(blank=True, null=True, default=None)
-    median_value = models.FloatField(blank=True, null=True, default=None)
-    max_value_year = models.FloatField(blank=True, null=True, default=None)
-    min_value_year = models.FloatField(blank=True, null=True, default=None)
-    max_value_position = models.FloatField(blank=True, null=True, default=None)
-    min_value_position = models.FloatField(blank=True, null=True, default=None)
 
     class Meta:
         ordering = ['parameter__name']
