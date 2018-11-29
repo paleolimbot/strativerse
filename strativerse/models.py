@@ -18,6 +18,35 @@ import reversion
 from .geometry import validate_wkt, wkt_bounds, wkt_geometry_type
 
 
+def duplicate_object(obj, fields=None, relations=None, excluding_fields=(), **kwargs):
+    if fields is None:
+        fields = [f.name for f in obj._meta.fields]
+    excluding_fields = list(excluding_fields) + ['id', 'pk']
+
+    new_obj = type(obj)()
+    for field in set(fields).difference(excluding_fields):
+        setattr(new_obj, field, getattr(obj, field))
+    for key, value in kwargs.items():
+        setattr(new_obj, key, value)
+    new_obj.save()
+
+    if relations is None:
+        relations = [f.name for f in obj._meta.related_objects]
+
+    for relation in obj._meta.related_objects:
+        if relation.name in relations and relation.name not in excluding_fields:
+            remote_field = relation.remote_field
+            for related_obj in getattr(obj, relation.name).all():
+                new_related_obj = duplicate_object(
+                    related_obj,
+                    excluding_fields=[remote_field.name],
+                    **{remote_field.name: new_obj}
+                )
+                new_related_obj.save()
+
+    return new_obj
+
+
 class Tag(models.Model):
     type = models.CharField(max_length=55, default='tag')
     key = models.CharField(max_length=55, validators=[

@@ -1,5 +1,9 @@
 
+import datetime
+
 from django.contrib import admin
+from django.db.models import TextField
+from django.forms import Textarea
 from django.http import HttpResponseRedirect
 from django.urls import reverse_lazy
 from django.utils.html import format_html, mark_safe
@@ -13,6 +17,12 @@ from . import models
 
 
 # ---- helper classes ----
+
+# This text override gets used to keep the size down on TextField()s
+small_text_overrides = {
+    TextField: {'widget': Textarea(attrs={'rows': 2, 'cols': 40})},
+}
+
 
 class HiddenRelatedListFilter(admin.RelatedOnlyFieldListFilter):
     model = None
@@ -62,11 +72,13 @@ class ParameterListFilter(HiddenRelatedListFilter):
     title = 'Parameter'
     model = models.Parameter
 
+
 # ---- inlines ----
 
 class TagInline(GenericTabularInline):
     model = models.Tag
     extra = 1
+    formfield_overrides = small_text_overrides
 
 
 class AttachmentInline(GenericTabularInline):
@@ -101,10 +113,10 @@ class RecordReferenceInline(admin.TabularInline):
     autocomplete_fields = ['publication']
 
 
-class RecordParameterInline(admin.StackedInline):
+class RecordParameterInline(admin.TabularInline):
     model = models.RecordParameter
     autocomplete_fields = ['parameter']
-    extra = 1
+    extra = 3
 
 
 # ---- admins ----
@@ -212,6 +224,7 @@ class PublicationAdmin(VersionAdmin):
         ('record_uses__record', RecordListFilter),
         'year'
     ]
+    actions = ['create_record']
 
     def authors(self, pub, max_auth=1):
         authors = pub.authorships.filter(role='author').order_by('order')
@@ -245,6 +258,30 @@ class PublicationAdmin(VersionAdmin):
         else:
             return mark_safe(out)
 
+    def create_record(self, request, queryset):
+        with reversion.create_revision(atomic=True):
+            all_people = set()
+            pubs = list(queryset)
+            record = models.Record()
+            record.name = 'New record'
+
+            record.date_collected = datetime.date(pubs[0].year, 1, 1)
+            record.save()
+            for pub in pubs:
+                for authorship in pub.authorships.filter(role='author'):
+                    all_people.add(authorship.person)
+                models.RecordReference.objects.create(record=record, publication=pub, type='contains_data_from')
+            for person in all_people:
+                models.RecordAuthorship.objects.create(record=record, person=person, role='published')
+
+            reversion.set_user(request.user)
+            reversion.set_comment('Created a new record with {} ({} total)'.format(pubs[0], len(pubs)))
+
+            return HttpResponseRedirect(
+                reverse_lazy('admin:strativerse_record_change', kwargs={'object_id': record.pk})
+            )
+    create_record.short_description = 'Create a new record with the selected publications'
+
 
 @admin.register(models.Record)
 class RecordAdmin(VersionAdmin):
@@ -258,6 +295,24 @@ class RecordAdmin(VersionAdmin):
         ('record_parameters__parameter', ParameterListFilter),
         'type'
     ]
+    actions = ['duplicate_record']
+
+    def duplicate_record(self, request, queryset):
+        if queryset.count() != 1:
+            self.message_user(request, 'Please select exactly one record.')
+            return
+
+        with reversion.create_revision(atomic=True):
+            obj = queryset.first()
+            new_record = models.duplicate_object(obj, name=obj.name + ' (copy)')
+
+            reversion.set_user(request.user)
+            reversion.set_comment('Record duplicated from {}'.format(obj))
+
+            return HttpResponseRedirect(
+                reverse_lazy('admin:strativerse_record_change', kwargs={'object_id': new_record.pk})
+            )
+    duplicate_record.short_description = 'Duplicate one record'
 
     def people(self, pub, max_auth=1):
         authors = pub.record_authorships.all()
