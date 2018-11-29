@@ -711,7 +711,7 @@ class RecordAuthorship(models.Model):
     order = models.IntegerField(default=0)
 
     class Meta:
-        ordering = ['order']
+        ordering = ['order', 'id']
 
     def __str__(self):
         return '%s (%s)' % (self.person, self.role)

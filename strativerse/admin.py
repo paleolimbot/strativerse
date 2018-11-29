@@ -123,10 +123,11 @@ class RecordParameterInline(admin.TabularInline):
 
 @admin.register(models.Feature)
 class FeatureAdmin(VersionAdmin):
-    inlines = [TagInline]
+    inlines = [TagInline, AttachmentInline]
     list_display = ['name', 'type']
     search_fields = ['name', 'type']
     list_filter = ['type']
+    fields = ['name', 'type', 'parent', 'geo_wkt', 'geo_error', 'geo_elev', 'geo_elev_error', 'description']
 
 
 @admin.register(models.Parameter)
@@ -260,16 +261,16 @@ class PublicationAdmin(VersionAdmin):
 
     def create_record(self, request, queryset):
         with reversion.create_revision(atomic=True):
-            all_people = set()
+            all_people = []
             pubs = list(queryset)
-            record = models.Record()
-            record.name = 'New record'
+            record = models.Record(name='New record', medium='lake_sediment', type='core')
 
             record.date_collected = datetime.date(pubs[0].year, 1, 1)
             record.save()
             for pub in pubs:
                 for authorship in pub.authorships.filter(role='author'):
-                    all_people.add(authorship.person)
+                    if authorship.person not in all_people:
+                        all_people.append(authorship.person)
                 models.RecordReference.objects.create(record=record, publication=pub, type='contains_data_from')
             for person in all_people:
                 models.RecordAuthorship.objects.create(record=record, person=person, role='published')
@@ -280,12 +281,12 @@ class PublicationAdmin(VersionAdmin):
             return HttpResponseRedirect(
                 reverse_lazy('admin:strativerse_record_change', kwargs={'object_id': record.pk})
             )
-    create_record.short_description = 'Create a new record with the selected publications'
+    create_record.short_description = 'Create a new record with selected publications'
 
 
 @admin.register(models.Record)
 class RecordAdmin(VersionAdmin):
-    inlines = [RecordAuthorshipInline, RecordReferenceInline, TagInline, AttachmentInline, RecordParameterInline]
+    inlines = [RecordAuthorshipInline, RecordReferenceInline, RecordParameterInline, TagInline, AttachmentInline]
     autocomplete_fields = ['feature']
     list_display = ['author_date_key', 'name', 'date_collected', 'type', 'description', 'people', 'publications']
     search_fields = ['name', 'description', 'record_authorship__author__last_name']
@@ -296,6 +297,11 @@ class RecordAdmin(VersionAdmin):
         'type'
     ]
     actions = ['duplicate_record']
+    formfield_overrides = small_text_overrides
+    fields = ['name', 'date_collected', 'published', 'medium', 'type',
+              'feature', 'description',
+              'geo_wkt', 'geo_error', 'resolution',
+              'min_year', 'max_year', 'position_units']
 
     def duplicate_record(self, request, queryset):
         if queryset.count() != 1:
