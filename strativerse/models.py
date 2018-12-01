@@ -50,10 +50,10 @@ def duplicate_object(obj, fields=None, relations=None, excluding_fields=(), **kw
 class Tag(models.Model):
     type = models.CharField(max_length=55, default='tag')
     key = models.CharField(max_length=55, validators=[
-        RegexValidator(r'^[A-Za-z0-9_]+$', message='Must only contain alphanumerics or the underscore')
+        RegexValidator(r'^[A-Za-z0-9_.-]+$', message='Must only contain alphanumerics, the dash, period, or underscore')
     ])
-    value = models.TextField()
-    comment = models.TextField()
+    value = models.TextField(blank=True)
+    comment = models.TextField(blank=True)
     content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE)
     object_id = models.PositiveIntegerField()
     content_object = GenericForeignKey('content_type', 'object_id')
@@ -69,9 +69,9 @@ class Tag(models.Model):
 class Attachment(models.Model):
     type = models.CharField(max_length=55, default='attachment')
     key = models.CharField(max_length=55, validators=[
-        RegexValidator(r'^[A-Za-z0-9_]+$', message='Must only contain alphanumerics or the underscore')
+        RegexValidator(r'^[A-Za-z0-9_.-]+$', message='Must only contain alphanumerics, the dash, period, or underscore')
     ])
-    comment = models.CharField(max_length=512)
+    comment = models.CharField(max_length=512, blank=True)
     file = models.FileField(upload_to='attachments')
     content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE)
     object_id = models.PositiveIntegerField()
