@@ -124,10 +124,11 @@ class RecordParameterInline(admin.TabularInline):
 @admin.register(models.Feature)
 class FeatureAdmin(VersionAdmin):
     inlines = [TagInline, AttachmentInline]
-    list_display = ['name', 'type']
-    search_fields = ['name', 'type']
+    list_display = ['name', 'type', 'source']
+    search_fields = ['name', 'type', 'source']
     list_filter = ['type']
-    fields = ['name', 'type', 'parent', 'geo_wkt', 'geo_error', 'geo_elev', 'geo_elev_error', 'description']
+    fields = ['name', 'type', 'parent', 'geo_wkt', 'geo_error', 'geo_elev', 'geo_elev_error', 'description', 'source']
+    autocomplete_fields = ['parent']
 
 
 @admin.register(models.Parameter)

@@ -194,6 +194,7 @@ class Feature(TaggedModel, LinkableModel, AttachableModel, RecursiveModel, GeoMo
         max_length=55
     )
     description = models.TextField(blank=True)
+    source = models.TextField(blank=True)
 
     def save(self, *args, **kwargs):
         self.cache_bounds()
