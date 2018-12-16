@@ -47,6 +47,7 @@ def duplicate_object(obj, fields=None, relations=None, excluding_fields=(), **kw
     return new_obj
 
 
+@reversion.register()
 class Tag(models.Model):
     type = models.CharField(max_length=55, default='tag')
     key = models.CharField(max_length=55, validators=[
@@ -66,6 +67,7 @@ class Tag(models.Model):
         return '%s/%s=`%s`' % (self.type, self.key, self.value)
 
 
+@reversion.register()
 class Attachment(models.Model):
     type = models.CharField(max_length=55, default='attachment')
     key = models.CharField(max_length=55, validators=[
@@ -179,6 +181,7 @@ class AttachableModel(models.Model):
         abstract = True
 
 
+@reversion.register(follow=('tags', 'attachments'))
 class Feature(TaggedModel, LinkableModel, AttachableModel, RecursiveModel, GeoModel):
     name = models.CharField(max_length=255)
     type = models.CharField(
@@ -205,6 +208,7 @@ class Feature(TaggedModel, LinkableModel, AttachableModel, RecursiveModel, GeoMo
         return '%s <%s %s>' % (self.name, self.type, self.pk)
 
 
+@reversion.register(follow=('tags', 'attachments', 'contact', 'aliases'))
 class Person(TaggedModel, LinkableModel, AttachableModel):
     given_names = models.CharField(max_length=255, blank=True)
     last_name = models.CharField(max_length=255)
@@ -274,6 +278,7 @@ class Person(TaggedModel, LinkableModel, AttachableModel):
         return target_person
 
 
+@reversion.register()
 class ContactInfo(models.Model):
     updated = models.DateField()
     person = models.ForeignKey(Person, on_delete=models.CASCADE, related_name='contact')
@@ -296,6 +301,7 @@ class ContactInfo(models.Model):
             return '<no info>'
 
 
+@reversion.register()
 class Alias(models.Model):
     person = models.ForeignKey(Person, on_delete=models.CASCADE, related_name='aliases')
     alias = models.CharField(max_length=255)
@@ -312,6 +318,7 @@ class Alias(models.Model):
         return re.sub(r'([A-Z])\.', r'\1', value)
 
 
+@reversion.register(follow=('tags', 'attachments', 'authorships'))
 class Publication(TaggedModel, LinkableModel, AttachableModel):
     slug = models.CharField(max_length=55, unique=True)
     type = models.CharField(max_length=55, choices=[
@@ -594,6 +601,7 @@ class Publication(TaggedModel, LinkableModel, AttachableModel):
         return '%s: "%s"' % (self.slug, title)
 
 
+@reversion.register()
 class Authorship(models.Model):
     publication = models.ForeignKey(Publication, models.CASCADE, related_name='authorships')
     person = models.ForeignKey(Person, models.PROTECT, related_name='authorships')
@@ -607,6 +615,7 @@ class Authorship(models.Model):
         return '%s (%s)' % (self.person, self.role)
 
 
+@reversion.register(follow=('tags', 'attachments'))
 class Parameter(TaggedModel, AttachableModel, LinkableModel):
     name = models.CharField(max_length=255)
     slug = models.CharField(max_length=255, validators=[RegexValidator(r'^[^/][a-zA-Z0-9_/-]+[^/]$')], unique=True)
@@ -621,6 +630,7 @@ class Parameter(TaggedModel, AttachableModel, LinkableModel):
         return self.name
 
 
+@reversion.register(follow=('tags', 'attachments', 'record_authorships', 'record_uses', 'record_parameters'))
 class Record(GeoModel, TaggedModel, AttachableModel, LinkableModel):
     name = models.CharField(max_length=255)
     date_collected = models.DateField()
@@ -698,6 +708,7 @@ class Record(GeoModel, TaggedModel, AttachableModel, LinkableModel):
         return '%s: %s' % (self.author_date_key(), self.name)
 
 
+@reversion.register()
 class RecordAuthorship(models.Model):
     record = models.ForeignKey(Record, models.CASCADE, related_name='record_authorships')
     person = models.ForeignKey(Person, models.PROTECT, related_name='record_authorships')
@@ -718,6 +729,7 @@ class RecordAuthorship(models.Model):
         return '%s (%s)' % (self.person, self.role)
 
 
+@reversion.register()
 class RecordReference(models.Model):
     record = models.ForeignKey(Record, on_delete=models.CASCADE, related_name='record_uses')
     publication = models.ForeignKey(Publication, on_delete=models.CASCADE, related_name='record_uses')
@@ -734,6 +746,7 @@ class RecordReference(models.Model):
         return ' '.join(str(part) for part in [self.record, self.type, self.publication])
 
 
+@reversion.register()
 class RecordParameter(models.Model):
     record = models.ForeignKey(Record, models.CASCADE, related_name='record_parameters')
     parameter = models.ForeignKey(Parameter, models.PROTECT, related_name='record_parameters')
