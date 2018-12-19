@@ -173,9 +173,15 @@ class Feature(TaggedModel, LinkableModel, AttachableModel, RecursiveModel):
     description = models.TextField(blank=True)
     source = models.TextField(blank=True)
 
-    geometry = GeometryField(blank=True)
+    geometry = GeometryField(blank=True, null=True)
     geo_elev = models.FloatField(default=0)
     geo_error = models.FloatField(default=0)
+
+    modified = models.DateTimeField('modified', auto_now=True)
+    created = models.DateTimeField('created', auto_now_add=True)
+
+    class Meta:
+        ordering = ['-modified']
 
     def save(self, *args, **kwargs):
         self.cache_recursive_depth()
@@ -197,9 +203,12 @@ class Person(TaggedModel, LinkableModel, AttachableModel):
         )
     ])
 
+    modified = models.DateTimeField('modified', auto_now=True)
+    created = models.DateTimeField('created', auto_now_add=True)
+
     class Meta:
         verbose_name_plural = 'people'
-        ordering = ['last_name', 'given_names']
+        ordering = ['-modified']
 
     def get_external_url(self):
         return 'https://orcid.org/' + self.orc_id if self.orc_id else None
@@ -342,8 +351,11 @@ class Publication(TaggedModel, LinkableModel, AttachableModel):
     abstract = models.TextField(blank=True)
     year = models.IntegerField()
 
+    modified = models.DateTimeField('modified', auto_now=True)
+    created = models.DateTimeField('created', auto_now_add=True)
+
     class Meta:
-        ordering = ['slug']
+        ordering = ['-modified']
 
     def get_external_url(self):
         if self.DOI:
@@ -600,8 +612,11 @@ class Parameter(TaggedModel, AttachableModel, LinkableModel):
     preparation = models.CharField(max_length=255, blank=True)
     instrumentation = models.CharField(max_length=255, blank=True)
 
+    modified = models.DateTimeField('modified', auto_now=True)
+    created = models.DateTimeField('created', auto_now_add=True)
+
     class Meta:
-        ordering = ['name']
+        ordering = ['-modified']
 
     def __str__(self):
         return self.name
@@ -655,12 +670,15 @@ class Record(TaggedModel, AttachableModel, LinkableModel):
     max_year = models.FloatField(blank=True, null=True, default=None)
     position_units = models.CharField(max_length=55, blank=True, default='cm')
 
-    geometry = GeometryField(blank=True)
+    geometry = GeometryField(blank=True, null=True)
     geo_elev = models.FloatField(default=0)
     geo_error = models.FloatField(default=0)
 
+    modified = models.DateTimeField('modified', auto_now=True)
+    created = models.DateTimeField('created', auto_now_add=True)
+
     class Meta:
-        ordering = ['date_collected']
+        ordering = ['-modified']
 
     def save(self, *args, **kwargs):
         self.cache_bounds()

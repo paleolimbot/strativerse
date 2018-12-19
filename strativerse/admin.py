@@ -132,7 +132,7 @@ class FeatureAdmin(VersionAdmin):
 
 @admin.register(models.Parameter)
 class ParameterAdmin(VersionAdmin):
-    list_display = ['name', 'slug', 'preparation', 'instrumentation', 'records']
+    list_display = ['name', 'slug', 'preparation', 'instrumentation', 'records', 'modified']
     search_fields = ['name', 'slug', 'preparation', 'instrumentation']
 
     def records(self, param, max_pubs=1):
@@ -155,7 +155,7 @@ class ParameterAdmin(VersionAdmin):
 @admin.register(models.Person)
 class PersonAdmin(VersionAdmin):
     inlines = [ContactInfoInline, AliasInline, TagInline, AttachmentInline]
-    list_display = ['last_name', 'given_names', 'suffix', 'external_link', 'publications', 'records']
+    list_display = ['last_name', 'given_names', 'suffix', 'external_link', 'publications', 'records', 'modified']
     search_fields = ['last_name', 'given_names', 'aliases__alias']
     actions = ['combine_people']
     list_filter = [
@@ -217,7 +217,7 @@ class PersonAdmin(VersionAdmin):
 @admin.register(models.Publication)
 class PublicationAdmin(VersionAdmin):
     inlines = [AuthorshipInline, TagInline, AttachmentInline]
-    list_display = ['author_date_key', 'title', 'year', 'external_link', 'authors', 'records']
+    list_display = ['author_date_key', 'title', 'year', 'external_link', 'authors', 'records', 'modified']
     search_fields = ['authorships__person__last_name', 'authorships__person__given_names',
                      'authorships__person__aliases__alias', 'title', 'year', 'DOI']
     list_filter = [
@@ -288,7 +288,8 @@ class PublicationAdmin(VersionAdmin):
 class RecordAdmin(VersionAdmin):
     inlines = [RecordAuthorshipInline, RecordReferenceInline, RecordParameterInline, TagInline, AttachmentInline]
     autocomplete_fields = ['feature']
-    list_display = ['author_date_key', 'name', 'date_collected', 'type', 'description', 'people', 'publications']
+    list_display = ['author_date_key', 'name', 'date_collected', 'type', 'description', 'people',
+                    'publications', 'modified']
     search_fields = ['name', 'description', 'record_authorship__author__last_name']
     list_filter = [
         ('record_authorships__person', AuthorListFilter),
