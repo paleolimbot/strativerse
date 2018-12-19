@@ -127,7 +127,6 @@ class FeatureAdmin(VersionAdmin):
     list_display = ['name', 'type', 'source']
     search_fields = ['name', 'type', 'source']
     list_filter = ['type']
-    fields = ['name', 'type', 'parent', 'geo_wkt', 'geo_error', 'geo_elev', 'geo_elev_error', 'description', 'source']
     autocomplete_fields = ['parent']
 
 
@@ -299,10 +298,6 @@ class RecordAdmin(VersionAdmin):
     ]
     actions = ['duplicate_record']
     formfield_overrides = small_text_overrides
-    fields = ['name', 'date_collected', 'published', 'medium', 'type',
-              'feature', 'description',
-              'geo_wkt', 'geo_error', 'resolution',
-              'min_year', 'max_year', 'position_units']
 
     def duplicate_record(self, request, queryset):
         if queryset.count() != 1:

@@ -9,13 +9,12 @@ from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
 from django.contrib.contenttypes.fields import GenericRelation
 from django.core.validators import RegexValidator, ValidationError
+from django.contrib.gis.db.models import GeometryField
 from django.db import models
 from django.utils.html import format_html
 from django.urls import reverse_lazy
 from django.contrib.auth.models import User
 import reversion
-
-from .geometry import validate_wkt, wkt_bounds, wkt_geometry_type
 
 
 def duplicate_object(obj, fields=None, relations=None, excluding_fields=(), **kwargs):
@@ -85,31 +84,6 @@ class Attachment(models.Model):
 
     def __str__(self):
         return '%s/%s=`%s`' % (self.type, self.key, self.file.name)
-
-
-class GeoModel(models.Model):
-    geo_wkt = models.TextField(validators=[validate_wkt, ], blank=True)
-    geo_error = models.FloatField(default=0)
-
-    geo_elev = models.FloatField(default=0)
-    geo_elev_error = models.FloatField(default=0)
-
-    geo_xmin = models.FloatField(editable=False, blank=True, null=True, default=None)
-    geo_xmax = models.FloatField(editable=False, blank=True, null=True, default=None)
-    geo_ymin = models.FloatField(editable=False, blank=True, null=True, default=None)
-    geo_ymax = models.FloatField(editable=False, blank=True, null=True, default=None)
-    geo_type = models.CharField(max_length=55, blank=True, editable=False)
-
-    class Meta:
-        abstract = True
-
-    def cache_bounds(self):
-        bounds = wkt_bounds(self.geo_wkt)
-        self.geo_type = wkt_geometry_type(self.geo_wkt)
-        self.geo_xmin = bounds['xmin']
-        self.geo_xmax = bounds['xmax']
-        self.geo_ymin = bounds['ymin']
-        self.geo_ymax = bounds['ymax']
 
 
 class RecursiveModel(models.Model):
@@ -182,7 +156,7 @@ class AttachableModel(models.Model):
 
 
 @reversion.register(follow=('tags', 'attachments'))
-class Feature(TaggedModel, LinkableModel, AttachableModel, RecursiveModel, GeoModel):
+class Feature(TaggedModel, LinkableModel, AttachableModel, RecursiveModel):
     name = models.CharField(max_length=255)
     type = models.CharField(
         choices=[
@@ -199,8 +173,11 @@ class Feature(TaggedModel, LinkableModel, AttachableModel, RecursiveModel, GeoMo
     description = models.TextField(blank=True)
     source = models.TextField(blank=True)
 
+    geometry = GeometryField(blank=True)
+    geo_elev = models.FloatField(default=0)
+    geo_error = models.FloatField(default=0)
+
     def save(self, *args, **kwargs):
-        self.cache_bounds()
         self.cache_recursive_depth()
         super().save(*args, **kwargs)
 
@@ -631,7 +608,7 @@ class Parameter(TaggedModel, AttachableModel, LinkableModel):
 
 
 @reversion.register(follow=('tags', 'attachments', 'record_authorships', 'record_uses', 'record_parameters'))
-class Record(GeoModel, TaggedModel, AttachableModel, LinkableModel):
+class Record(TaggedModel, AttachableModel, LinkableModel):
     name = models.CharField(max_length=255)
     date_collected = models.DateField()
     published = models.CharField(
@@ -677,6 +654,10 @@ class Record(GeoModel, TaggedModel, AttachableModel, LinkableModel):
     min_year = models.FloatField(blank=True, null=True, default=None)
     max_year = models.FloatField(blank=True, null=True, default=None)
     position_units = models.CharField(max_length=55, blank=True, default='cm')
+
+    geometry = GeometryField(blank=True)
+    geo_elev = models.FloatField(default=0)
+    geo_error = models.FloatField(default=0)
 
     class Meta:
         ordering = ['date_collected']
