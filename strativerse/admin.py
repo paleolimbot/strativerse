@@ -124,7 +124,7 @@ class RecordParameterInline(admin.TabularInline):
 @admin.register(models.Feature)
 class FeatureAdmin(VersionAdmin):
     inlines = [TagInline, AttachmentInline]
-    list_display = ['name', 'type', 'source']
+    list_display = ['name', 'type', 'source', 'modified']
     search_fields = ['name', 'type', 'source']
     list_filter = ['type']
     autocomplete_fields = ['parent']
