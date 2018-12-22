@@ -680,10 +680,6 @@ class Record(TaggedModel, AttachableModel, LinkableModel):
     class Meta:
         ordering = ['-modified']
 
-    def save(self, *args, **kwargs):
-        self.cache_bounds()
-        super().save(*args, **kwargs)
-
     def author_date_key(self, parentheses=False):
         authorships = list(self.record_authorships.all().order_by('order'))
         if len(authorships) == 0:
