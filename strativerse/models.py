@@ -500,11 +500,17 @@ class Publication(TaggedModel, LinkableModel, AttachableModel):
 
         text_label = re.sub(r'\s+', ' ', repr(text)[:100].replace('\n', ' '))
         if isinstance(text, str):
-            if os.path.exists(text):
-                with open(text, 'r', encoding='utf-8') as f:
-                    entries = json.load(f)
-            else:
+            try:
+                if os.path.exists(text):
+                    with open(text, 'r', encoding='utf-8') as f:
+                        entries = json.load(f)
+                else:
+                    entries = json.loads(text)
+            except UnicodeEncodeError:
+                # happens when there are weird characters in text
+                # in this case, they are definitely not a path
                 entries = json.loads(text)
+
         else:
             entries = text
 
