@@ -543,7 +543,11 @@ class Publication(TaggedModel, LinkableModel, AttachableModel):
                     except Publication.DoesNotExist:
                         pub = Publication()
 
-                    pub.update_from_csl_json(entry, update_authors=update_authors, update_slug=True, update_tags=True)
+                    pub.update_from_csl_json(
+                        entry,
+                        update_authors=update_authors or not bool(pub.pk),
+                        update_slug=True, update_tags=True
+                    )
                     pub.save()
 
                     # check for existing publication with same title and base slug
