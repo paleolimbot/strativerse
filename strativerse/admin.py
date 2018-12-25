@@ -305,7 +305,7 @@ class RecordAdmin(VersionAdmin):
     autocomplete_fields = ['feature']
     list_display = ['name', 'date_collected', 'medium', 'type', 'feature', 'people',
                     'publications', 'modified']
-    search_fields = ['name', 'description', 'record_authorships__author__last_name']
+    search_fields = ['name', 'description', 'record_authorships__person__last_name']
     list_filter = [
         ('record_authorships__person', AuthorListFilter),
         ('record_uses__publication', PublicationListFilter),
