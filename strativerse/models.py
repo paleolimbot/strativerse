@@ -697,7 +697,7 @@ class Record(TaggedModel, AttachableModel, LinkableModel):
         self.record_authorships.filter(role='published').delete()
         all_people = []
         for ref in self.record_uses.order_by('publication__year'):
-            for authorship in ref.publication.authorships.order_by('order'):
+            for authorship in ref.publication.authorships.filter(role='author').order_by('order'):
                 if authorship.person not in all_people:
                     all_people.append(authorship.person)
 
