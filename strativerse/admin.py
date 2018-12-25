@@ -73,6 +73,11 @@ class ParameterListFilter(HiddenRelatedListFilter):
     model = models.Parameter
 
 
+class FeatureListFilter(HiddenRelatedListFilter):
+    title = 'Feature'
+    model = models.Feature
+
+
 # ---- inlines ----
 
 class TagInline(GenericTabularInline):
@@ -124,16 +129,32 @@ class RecordParameterInline(admin.TabularInline):
 @admin.register(models.Feature)
 class FeatureAdmin(VersionAdmin):
     inlines = [TagInline, AttachmentInline]
-    list_display = ['name', 'type', 'source', 'modified']
+    list_display = ['name', 'type', 'source', 'records', 'modified']
     search_fields = ['name', 'type', 'source']
     list_filter = ['type']
     autocomplete_fields = ['parent']
 
+    def records(self, feature, max_pubs=1):
+        pubs = models.Record.objects.filter(feature=feature).distinct()
+        n_pubs = pubs.count()
+        out = ', '.join(str(pub.admin_link(text=str(pub))) for pub in pubs[:max_pubs])
+        if n_pubs > max_pubs:
+
+            more = format_html(
+                ' <a href="{}?feature__id__exact={}">+{} more</a>',
+                reverse_lazy('admin:strativerse_record_changelist'),
+                feature.id,
+                n_pubs - max_pubs
+            )
+            return mark_safe(out + more)
+        else:
+            return mark_safe(out)
+
 
 @admin.register(models.Parameter)
 class ParameterAdmin(VersionAdmin):
-    list_display = ['name', 'slug', 'preparation', 'instrumentation', 'records', 'modified']
-    search_fields = ['name', 'slug', 'preparation', 'instrumentation']
+    list_display = ['name', 'slug', 'description', 'records', 'modified']
+    search_fields = ['name', 'slug', 'description']
 
     def records(self, param, max_pubs=1):
         pubs = models.Record.objects.filter(record_parameters__parameter=param).distinct()
@@ -217,7 +238,7 @@ class PersonAdmin(VersionAdmin):
 @admin.register(models.Publication)
 class PublicationAdmin(VersionAdmin):
     inlines = [AuthorshipInline, TagInline, AttachmentInline]
-    list_display = ['author_date_key', 'title', 'year', 'external_link', 'authors', 'records', 'modified']
+    list_display = ['slug', 'title', 'year', 'external_link', 'authors', 'records', 'modified']
     search_fields = ['authorships__person__last_name', 'authorships__person__given_names',
                      'authorships__person__aliases__alias', 'title', 'year', 'DOI']
     list_filter = [
@@ -261,19 +282,13 @@ class PublicationAdmin(VersionAdmin):
 
     def create_record(self, request, queryset):
         with reversion.create_revision(atomic=True):
-            all_people = []
             pubs = list(queryset)
             record = models.Record(name='New record', medium='lake_sediment', type='core')
 
             record.date_collected = datetime.date(pubs[0].year, 1, 1)
             record.save()
             for pub in pubs:
-                for authorship in pub.authorships.filter(role='author'):
-                    if authorship.person not in all_people:
-                        all_people.append(authorship.person)
                 models.RecordReference.objects.create(record=record, publication=pub, type='contains_data_from')
-            for person in all_people:
-                models.RecordAuthorship.objects.create(record=record, person=person, role='published')
 
             reversion.set_user(request.user)
             reversion.set_comment('Created a new record with {} ({} total)'.format(pubs[0], len(pubs)))
@@ -288,13 +303,14 @@ class PublicationAdmin(VersionAdmin):
 class RecordAdmin(VersionAdmin):
     inlines = [RecordAuthorshipInline, RecordReferenceInline, RecordParameterInline, TagInline, AttachmentInline]
     autocomplete_fields = ['feature']
-    list_display = ['author_date_key', 'name', 'date_collected', 'type', 'description', 'people',
+    list_display = ['name', 'date_collected', 'medium', 'type', 'feature', 'people',
                     'publications', 'modified']
-    search_fields = ['name', 'description', 'record_authorship__author__last_name']
+    search_fields = ['name', 'description', 'record_authorships__author__last_name']
     list_filter = [
         ('record_authorships__person', AuthorListFilter),
         ('record_uses__publication', PublicationListFilter),
         ('record_parameters__parameter', ParameterListFilter),
+        ('feature', FeatureListFilter),
         'type'
     ]
     actions = ['duplicate_record']

@@ -619,14 +619,12 @@ class Parameter(TaggedModel, AttachableModel, LinkableModel):
     name = models.CharField(max_length=255)
     slug = models.CharField(max_length=255, validators=[RegexValidator(r'^[^/][a-zA-Z0-9_/-]+[^/]$')], unique=True)
     description = models.TextField(blank=True)
-    preparation = models.CharField(max_length=255, blank=True)
-    instrumentation = models.CharField(max_length=255, blank=True)
 
     modified = models.DateTimeField('modified', auto_now=True)
     created = models.DateTimeField('created', auto_now_add=True)
 
     class Meta:
-        ordering = ['-modified']
+        ordering = ['slug']
 
     def __str__(self):
         return self.name
@@ -642,7 +640,7 @@ class Record(TaggedModel, AttachableModel, LinkableModel):
         default='draft'
     )
     description = models.TextField(blank=True)
-    feature = models.ForeignKey(Feature, on_delete=models.SET_NULL, blank=True, null=True)
+    feature = models.ForeignKey(Feature, on_delete=models.SET_NULL, blank=True, null=True, related_name='records')
     medium = models.CharField(
         choices=[
             ('lake_sediment', 'Lake Sediment'),
@@ -690,27 +688,32 @@ class Record(TaggedModel, AttachableModel, LinkableModel):
     class Meta:
         ordering = ['-modified']
 
-    def author_date_key(self, parentheses=False):
-        authorships = list(self.record_authorships.all().order_by('order'))
-        if len(authorships) == 0:
-            author_text = '<no authors>'
-        elif len(authorships) == 1:
-            author_text = authorships[0].person.last_name
-        elif len(authorships) == 2:
-            author_text = '%s and %s' % (
-                authorships[0].person.last_name,
-                authorships[1].person.last_name
-            )
-        else:
-            author_text = '%s et al.' % authorships[0].person.last_name
+    def save(self, *args, **kwargs):
+        # keep the list of people who published this record synced
+        # sort by earliest publication
+        if not self.pk:
+            super().save(*args, **kwargs)
 
-        if parentheses:
-            return '%s (%s)' % (author_text, self.date_collected.year)
-        else:
-            return '%s %s' % (author_text, self.date_collected.year)
+        self.record_authorships.filter(role='published').delete()
+        all_people = []
+        for ref in self.record_uses.order_by('publication__year'):
+            for authorship in ref.publication.authorships.order_by('order'):
+                if authorship.person not in all_people:
+                    all_people.append(authorship.person)
+
+        for i, person in enumerate(all_people):
+            RecordAuthorship.objects.create(
+                record=self,
+                person=person,
+                role='published',
+                order=20 + i
+            )
+
+        # saving at the end ensures the reversion signal gets sent
+        return super().save(*args, **kwargs)
 
     def __str__(self):
-        return '%s: %s' % (self.author_date_key(), self.name)
+        return self.name
 
 
 @reversion.register()
