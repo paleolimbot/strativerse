@@ -230,19 +230,29 @@ class Person(TaggedModel, LinkableModel, AttachableModel):
         max_pubs = max(n_pubs)
         max_index = [i for i, n in enumerate(n_pubs) if n == max_pubs][0]
 
+        affected_records = set()
+
         target_person = people.pop(max_index)
         for renamed_person in people:
             # could use Queryset.update() here, but it doesn't send any signals to reversion
             # not important for Alias objects, since we're about to delete the objects
             # they come from and save the one they're going to
+
             Alias.objects.filter(person=renamed_person).update(person=target_person)
+
+            # authorships don't generally have a problem with more than one existing
+            # for a single publication
             for authorship in Authorship.objects.filter(person=renamed_person):
                 authorship.person = target_person
                 authorship.save()
 
+            # record authorships can have (often do have) this problem...two
+            # or more of the same "people" end up on the same record
+            # calling the save() method on the record fixes this
             for authorship in RecordAuthorship.objects.filter(person=renamed_person):
                 authorship.person = target_person
                 authorship.save()
+                affected_records.add(authorship.record)
 
             for tag in list(renamed_person.tags.all()):
                 try:
@@ -259,6 +269,10 @@ class Person(TaggedModel, LinkableModel, AttachableModel):
                     attachment.save()
 
             renamed_person.delete()
+
+        # syncs publication authors with records
+        for record in affected_records:
+            record.save()
 
         target_person.save()
         return target_person

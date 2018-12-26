@@ -316,6 +316,13 @@ class RecordAdmin(VersionAdmin):
     actions = ['duplicate_record']
     formfield_overrides = small_text_overrides
 
+    def save_related(self, request, form, formsets, change):
+        # to keep people synced with pubs, the model
+        # has to get saved after the related bits
+        # one way to do this is to save the form twice
+        super().save_related(request, form, formsets, change)
+        super().save_model(request, form.instance, form, change)
+
     def duplicate_record(self, request, queryset):
         if queryset.count() != 1:
             self.message_user(request, 'Please select exactly one record.')
@@ -331,7 +338,7 @@ class RecordAdmin(VersionAdmin):
             return HttpResponseRedirect(
                 reverse_lazy('admin:strativerse_record_change', kwargs={'object_id': new_record.pk})
             )
-    duplicate_record.short_description = 'Duplicate one record'
+    duplicate_record.short_description = 'Duplicate record'
 
     def people(self, pub, max_auth=1):
         authors = pub.record_authorships.all()
