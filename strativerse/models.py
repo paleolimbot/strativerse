@@ -208,7 +208,7 @@ class Person(TaggedModel, LinkableModel, AttachableModel):
 
     class Meta:
         verbose_name_plural = 'people'
-        ordering = ['-modified']
+        ordering = ['last_name']
 
     def get_external_url(self):
         return 'https://orcid.org/' + self.orc_id if self.orc_id else None
