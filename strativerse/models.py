@@ -587,7 +587,7 @@ class Publication(TaggedModel, LinkableModel, AttachableModel):
 
         return items
 
-    def author_date_key(self, parentheses=False):
+    def author_summary(self):
         authorships = list(self.authorships.filter(role='author').order_by('order'))
         if len(authorships) == 0:
             author_text = '<no authors>'
@@ -600,6 +600,11 @@ class Publication(TaggedModel, LinkableModel, AttachableModel):
             )
         else:
             author_text = '%s et al.' % authorships[0].person.last_name
+
+        return author_text
+
+    def author_date_key(self, parentheses=False):
+        author_text = self.author_summary()
 
         if parentheses:
             return '%s (%s)' % (author_text, self.year)
