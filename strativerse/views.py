@@ -19,6 +19,13 @@ def register_model_detail_url(model, url_id):
     return previous
 
 
+def get_model_detail_url(model, pk):
+    if model not in _model_detail_urls_patterns:
+        return None
+    else:
+        return reverse_lazy(_model_detail_urls_patterns[model], kwargs={'pk': pk})
+
+
 class ModelDetailRedirectView(RedirectView):
 
     def get_redirect_url(self, model, pk):
