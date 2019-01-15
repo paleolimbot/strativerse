@@ -1,0 +1,50 @@
+
+<div class="viewlist">
+    <div id="div-form-{{ viewlist.prefix }}viewlist" class="div-form-viewlist">
+        <form id="form-{{ viewlist.prefix }}viewlist" class="form-viewlist">
+            {% if viewlist.is_searchable %}
+                <ul>
+                    {{ viewlist.search_form.as_ul }}
+                    <li><input type="submit" value="Go"></li>
+                </ul>
+            {% else %}
+                {{ form.as_p }}
+            {% endif %}
+        </form>
+    </div>
+
+    <table>
+        <thead>
+        <tr>
+            {% for field in viewlist.visible_fields %}
+                <th>
+                {% if field.is_sortable %}
+                    <a href="{{ field.sort_link }}" title="{{ field.help_text }}" class="viewlist-head-text viewlist-sort-link">{{ field.label }}</a>
+                {% else %}
+                    <span title="{{ field.help_text }}" class="viewlist-head-text">{{ field.label }}</span>
+                {% endif %}
+                </th>
+            {% endfor %}
+        </tr>
+        </thead>
+        <tbody>
+        {% for row in viewlist.rowiter_html %}
+            <tr>
+            {% for cell in row %}
+                <td>{{ cell }}</td>
+            {% endfor %}
+            </tr>
+        {% empty %}
+            <td class="viewlist-empty" colspan="{{ viewlist.visible_fields|length }}">
+                There are no {{ viewlist.object_name_plural }} to view
+            </td>
+        {% endfor %}
+        </tbody>
+    </table>
+
+    {% if viewlist.is_paginated %}
+        <div class="paginator-widget">
+            {{ viewlist.pagination_widget }}
+        </div>
+    {% endif %}
+</div>
