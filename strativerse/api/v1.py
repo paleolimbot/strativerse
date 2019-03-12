@@ -32,12 +32,15 @@ class StrativerseAPI:
 
 
 class StratiViewList(ViewList):
-    type = ViewField(lambda item: item._meta.model_name)
     id = ViewField()
-    summary = ViewField('self')
+    summary = ViewField(lambda item: str(item))
     url = ViewField(lambda item: get_model_detail_url(item._meta.model_name, item.pk))
-    created = ViewField(sortable=True)
-    modified = ViewField(sortable=True)
+    created = ViewField(lambda item: str(item.created), sortable=True)
+    modified = ViewField(lambda item: str(item.modified), sortable=True)
+
+    prefix = None
+    search_var = 'q'
+    order_var = 'o'
 
     def __init__(self, request):
         super().__init__(data=request.GET)
@@ -47,7 +50,7 @@ class StratiViewList(ViewList):
         return 1000
 
     def get_related_viewlist_class(self, model_name):
-        raise NotImplementedError()
+        return None
 
 
 class FeatureViewList(StratiViewList):
@@ -86,15 +89,16 @@ class RecordViewList(StratiViewList):
 class StrativerseAPIv1(StrativerseAPI):
 
     def get_view_list(self, request, model_name):
-        if model_name == 'Feature':
+        model_name = model_name.lower()
+        if model_name == 'feature':
             viewlist = FeatureViewList
-        elif model_name == 'Parameter':
+        elif model_name == 'parameter':
             viewlist = ParameterViewList
-        elif model_name == 'Person':
+        elif model_name == 'person':
             viewlist = PersonViewList
-        elif model_name == 'Publication':
+        elif model_name == 'publication':
             viewlist = PublicationViewList
-        elif model_name == 'Record':
+        elif model_name == 'record':
             viewlist = RecordViewList
         else:
             return None
@@ -108,7 +112,7 @@ class StrativerseAPIv1(StrativerseAPI):
         try:
             obj = viewlist.model.objects.get(pk=pk)
             dct = viewlist.row_json(obj)
-            return http.HttpResponse(json.dumps(dct))
+            return http.HttpResponse(json.dumps(dct), content_type='application/json')
         except ObjectDoesNotExist:
             return ErrorResponse(404, f'No {model_name} with id {pk}')
 
@@ -116,7 +120,7 @@ class StrativerseAPIv1(StrativerseAPI):
         viewlist = self.get_view_list(request, model_name)
         if viewlist is None:
             return ErrorResponse(404, f'No such type: "{model_name}"')
-        return http.HttpResponse(json.dumps(viewlist.as_json()))
+        return http.HttpResponse(viewlist.as_json(), content_type='application/json')
 
     def related_view(self, request, model_name, pk, related_model_name):
         viewlist = self.get_view_list(request, model_name)
@@ -130,7 +134,7 @@ class StrativerseAPIv1(StrativerseAPI):
         try:
             obj = viewlist.model.objects.get(pk=pk)
             related_viewlist = related_viewlist_class(request, obj)
-            return http.HttpResponse(json.dumps(related_viewlist.as_json()))
+            return http.HttpResponse(related_viewlist.as_json(), content_type='application/json')
         except ObjectDoesNotExist:
             return ErrorResponse(404, f'No {model_name} with id {pk}')
 

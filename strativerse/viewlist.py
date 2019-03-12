@@ -20,7 +20,7 @@ class ViewField(forms.CharField):
     view_key = None
     search_key = None
 
-    def __init__(self, *args, key=None, sort_key=None, search_key=None,
+    def __init__(self, key=None, sort_key=None, search_key=None,
                  searchable=None, sortable=None, visible=True, filters=None,
                  null_values=None, **kwargs):
         if key is not None:
@@ -37,7 +37,7 @@ class ViewField(forms.CharField):
         if searchable is None and self.search_key is not None:
             searchable = True
 
-        super().__init__(*args, **kwargs)
+        super().__init__(**kwargs)
         self._searchable = searchable
         self._sortable = sortable
         if not visible:
@@ -394,7 +394,7 @@ class ViewList(forms.Form):
         return [field.value_html(item) for field in self.fields.values() if field.visible]
 
     def row_json(self, item):
-        return [field.value_json(item) for field in self.fields.values() if field.visible]
+        return {field.name: field.value_json(item) for field in self.fields.values() if field.visible}
 
     def as_json(self):
         return json.dumps(list(self.rowiter_json()))
